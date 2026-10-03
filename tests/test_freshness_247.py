@@ -4,9 +4,9 @@ from datetime import datetime, timedelta, timezone
 import unittest
 from unittest.mock import patch
 
-from check_connection import PrimaryError
-from order_book import parse_snapshot
-from smoke_demo_order import final_send_gate, session_gate, timestamp_gate
+from market_making.market_data.check_connection import PrimaryError
+from market_making.market_data.order_book import parse_snapshot
+from market_making.execution.smoke_demo_order import final_send_gate, session_gate, timestamp_gate
 
 NOW = datetime(2026, 10, 2, 15, tzinfo=timezone.utc)
 
@@ -93,8 +93,8 @@ class FreshnessTests(unittest.TestCase):
     def test_final_cached_evidence_has_no_filesystem_io(self):
         book = replace(parse_snapshot(payload(NOW.isoformat()), NOW, received_monotonic=0),
                        quote_age=0, clock_uncertainty=0, timestamp_authoritative=True)
-        with patch("smoke_demo_order.timestamp_gate"), patch("pathlib.Path.read_text", side_effect=AssertionError("IO")), \
-                patch("order_book.time.monotonic", return_value=0), patch("order_book.datetime") as clock:
+        with patch("market_making.execution.smoke_demo_order.timestamp_gate"), patch("pathlib.Path.read_text", side_effect=AssertionError("IO")), \
+                patch("market_making.market_data.order_book.time.monotonic", return_value=0), patch("market_making.market_data.order_book.datetime") as clock:
             clock.now.return_value = NOW
             final_send_gate({"independently_reviewed": True}, book)
             with self.assertRaises(PrimaryError):

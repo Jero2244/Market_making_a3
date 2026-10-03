@@ -9,12 +9,13 @@ import json
 import os
 from pathlib import Path
 import requests
-from check_connection import PrimaryError, authenticate, load_dotenv, safe_payload
-from demo_execution import DemoClient, MonitoringBlocked, cleanup, durable, identifier, lifecycle
-from instrument_rules import resolve, number
-from order_book import fetch_book
+from market_making.market_data.check_connection import PrimaryError, authenticate, load_dotenv, safe_payload
+from market_making.execution.demo_execution import DemoClient, MonitoringBlocked, cleanup, durable, identifier, lifecycle
+from market_making.market_data.instrument_rules import resolve, number
+from market_making.market_data.order_book import fetch_book
+from market_making.paths import DEMO_ORDER_LOCK
 
-LOCK = Path(__file__).resolve().parent / ".demo_order_lock.json"
+LOCK = DEMO_ORDER_LOCK
 
 
 def read_review_evidence(path):

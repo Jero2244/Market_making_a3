@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rfx20-market-making"
+version = "0.1.0"
+description = "Primary REMARKETS market data, offline validation, and guarded demo execution"
+readme = "README.md"
+requires-python = ">=3.10"
+dynamic = ["dependencies"]
+
+[tool.setuptools.dynamic]
+dependencies = {file = ["requirements.txt"]}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[project.scripts]
+check-connection = "market_making.market_data.check_connection:main"
+stream-market-data = "market_making.market_data.stream_market_data:main"
+view-order-book = "market_making.market_data.view_order_book:main"
+smoke-demo-order = "market_making.execution.smoke_demo_order:main"
+validate-live = "market_making.validation.validate_live:main"
+collect-session-sources = "market_making.validation.collect_session_sources:main"
+reanalyze-demo = "market_making.validation.reanalyze_demo:main"
+replay-readiness = "market_making.validation.replay_readiness:main"

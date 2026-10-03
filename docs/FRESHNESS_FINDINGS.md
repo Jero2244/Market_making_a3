@@ -28,7 +28,7 @@ deferred pending specification, not silently implemented or claimed tested.
 
 - Final `python -m unittest discover -s tests -v`: 117 tests, exit 0
   (5.214 seconds; baseline 114 tests, 6.413 seconds).
-- Default `python smoke_demo_order.py` and `python view_order_book.py`:
+- Default `smoke-demo-order` and `view-order-book`:
   both NOT_RUN, exit 2. Their default paths return before dotenv/credential
   loading or networking; no live/preflight/send/cancel flag was used.
 - `python -m py_compile` for all 11 root and 5 test Python files: exit 0.

@@ -160,7 +160,7 @@ and retrospective process exit status is distinguished from an inferred equivale
 Regression tests cover the corrections without changing original evidence.
 
 `REPLAY_ACCEPTANCE.md` records session/rule/timestamp/clock blockers.
-`replay_acceptance_policy.json` defines prospective thresholds and a 12-slot capture
+`config/replay_acceptance_policy.json` defines prospective thresholds and a 12-slot capture
 matrix; no run is authorized by that file. `replay_readiness.py` creates exclusive
 offline quality/readiness reports without reconstructing a book. Historical
 threshold comparisons are retrospective, all replay intervals excluded, LA null

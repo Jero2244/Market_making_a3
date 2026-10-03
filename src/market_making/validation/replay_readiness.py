@@ -11,10 +11,11 @@ from hashlib import sha256
 import json
 from pathlib import Path
 
-from check_connection import instrument_id
-from stream_market_data import (ENTRIES, auth_rejected, parse_market_frame,
+from market_making.market_data.check_connection import instrument_id
+from market_making.market_data.stream_market_data import (ENTRIES, auth_rejected, parse_market_frame,
                                 server_timestamps, subscription_rejected)
-from validate_live import observation_acceptance, summarize, write_json
+from market_making.validation.validate_live import observation_acceptance, summarize, write_json
+from market_making.paths import DEFAULT_REPLAY_POLICY
 
 
 def receipt(value):
@@ -328,11 +329,15 @@ def audit(original, output, policy_path):
     return decision
 
 
-if __name__ == "__main__":
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--original-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    parser.add_argument("--policy", type=Path, default=Path("replay_acceptance_policy.json"))
-    args = parser.parse_args()
+    parser.add_argument("--policy", type=Path, default=DEFAULT_REPLAY_POLICY)
+    args = parser.parse_args(argv)
     result = audit(args.original_dir, args.output_dir, args.policy)
     print("Replay: " + result["overall_replay_status"] + "; new credentialed runs: 0")
+
+
+if __name__ == "__main__":
+    main()

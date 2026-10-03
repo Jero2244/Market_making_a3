@@ -237,16 +237,16 @@ Do not run send/cancel commands while freshness prerequisites are missing.
 
 ```powershell
 python -m unittest discover -s tests -v
-python view_order_book.py --live --depth 5
-python smoke_demo_order.py
+view-order-book --live --depth 5
+smoke-demo-order
 # Read-only diagnostic: choose NEW directory; account/session evidence optional
-python smoke_demo_order.py --preflight --evidence-dir data/demo_preflight_NEW
+smoke-demo-order --preflight --evidence-dir data/demo_preflight_NEW
 # Supplying real reviewed evidence evaluates additional gates (still read-only)
-python smoke_demo_order.py --preflight --evidence-dir data/demo_preflight_REVIEWED --session-evidence data/reviewed_demo_session.json
+smoke-demo-order --preflight --evidence-dir data/demo_preflight_REVIEWED --session-evidence data/reviewed_demo_session.json
 # ONLY AFTER REVIEW + EXPLICIT AUTHORIZATION; choose another NEW directory
-python smoke_demo_order.py --preflight --send --evidence-dir data/demo_order_NEW --session-evidence data/reviewed_demo_session.json
+smoke-demo-order --preflight --send --evidence-dir data/demo_order_NEW --session-evidence data/reviewed_demo_session.json
 # Restart recovery: SAME evidence directory, never sends
-python smoke_demo_order.py --cancel-only --evidence-dir data/demo_order_NEW
+smoke-demo-order --cancel-only --evidence-dir data/demo_order_NEW
 ```
 
 Default makes no network calls, loads no credentials and exits 2 (NOT_RUN).

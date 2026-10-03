@@ -4,14 +4,14 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-import replay_readiness as replay
-import validate_live as live
+import market_making.validation.replay_readiness as replay
+import market_making.validation.validate_live as live
 
 
 ROOT = Path(__file__).resolve().parents[1]
 ORIGINAL = ROOT / "data/live_exploratory_20261002_01"
 IDENTITY = ("ROFX", "RFX20/DIC26")
-POLICY = json.loads((ROOT / "replay_acceptance_policy.json").read_text())
+POLICY = json.loads((ROOT / "config" / "replay_acceptance_policy.json").read_text())
 SPEC = json.loads((ORIGINAL / "contract.json").read_text())["instrument"]
 
 
@@ -95,7 +95,7 @@ class ReplayTests(unittest.TestCase):
         before = replay.hashes(ORIGINAL)
         with tempfile.TemporaryDirectory() as folder, patch.object(live, "authenticate") as auth:
             output = Path(folder) / "audit"
-            result = replay.audit(ORIGINAL, output, ROOT / "replay_acceptance_policy.json")
+            result = replay.audit(ORIGINAL, output, ROOT / "config" / "replay_acceptance_policy.json")
             auth.assert_not_called()
             self.assertEqual(len(result["capture_matrix"]), 12)
             self.assertEqual(result["new_credentialed_runs"], 0)
@@ -105,9 +105,9 @@ class ReplayTests(unittest.TestCase):
                 self.assertEqual(result["uses"][use]["status"], "BLOCKED")
                 self.assertTrue(result["uses"][use]["fill_assumptions"])
             with self.assertRaises(FileExistsError):
-                replay.audit(ORIGINAL, output, ROOT / "replay_acceptance_policy.json")
+                replay.audit(ORIGINAL, output, ROOT / "config" / "replay_acceptance_policy.json")
             with self.assertRaises(ValueError):
-                replay.audit(ORIGINAL, ORIGINAL / "forbidden", ROOT / "replay_acceptance_policy.json")
+                replay.audit(ORIGINAL, ORIGINAL / "forbidden", ROOT / "config" / "replay_acceptance_policy.json")
         self.assertEqual(before, replay.hashes(ORIGINAL))
 
     def test_recovery_rejects_extra_fault_before_data_and_interrupted_attempt(self):
@@ -132,7 +132,7 @@ class ReplayTests(unittest.TestCase):
             self.assertFalse(live.summarize(invalid, IDENTITY, expected_duration=300)["duration_completed"])
 
     def test_reanalysis_does_not_invent_process_exit_status(self):
-        from reanalyze_demo import reanalyze
+        from market_making.validation.reanalyze_demo import reanalyze
         with tempfile.TemporaryDirectory() as folder:
             result = reanalyze(ORIGINAL, Path(folder) / "analysis")
             self.assertIsNone(result["original_exit_code"])

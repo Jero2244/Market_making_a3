@@ -64,7 +64,7 @@ were changed in this audit.
 
 ## Prospective capture matrix (step 5)
 
-`replay_acceptance_policy.json` defines 12 slots: two **to-be-confirmed** dates ×
+`config/replay_acceptance_policy.json` defines 12 slots: two **to-be-confirmed** dates ×
 two **to-be-discovered** available expiries × early/middle/late five-minute windows.
 The window times assume the published schedule and require exception/applicability
 review before use. No dates, contracts or coverage are fabricated. The original
@@ -82,7 +82,7 @@ Run offline only:
 
 ```powershell
 python -m unittest discover -s tests -v
-python replay_readiness.py --original-dir data/live_exploratory_20261002_01 --output-dir data/replay_acceptance_NEW
+replay-readiness --original-dir data/live_exploratory_20261002_01 --output-dir data/replay_acceptance_NEW
 ```
 
 The exclusive new directory contains `quality_report.json` and `readiness.json`.

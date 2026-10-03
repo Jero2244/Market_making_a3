@@ -11,11 +11,11 @@ import unittest
 from unittest.mock import Mock, patch
 import requests
 
-from check_connection import ALLOWED_OPERATIONS, PrimaryError, request
-from demo_execution import DemoClient, HOST, MonitoringBlocked, cleanup, durable, lifecycle, quantity_evidence
-from instrument_rules import SYMBOL, resolve, validate_detail
-from order_book import parse_snapshot
-from smoke_demo_order import choose_price, diagnostic_preflight, final_send_gate, main, session_gate, timestamp_gate
+from market_making.market_data.check_connection import ALLOWED_OPERATIONS, PrimaryError, request
+from market_making.execution.demo_execution import DemoClient, HOST, MonitoringBlocked, cleanup, durable, lifecycle, quantity_evidence
+from market_making.market_data.instrument_rules import SYMBOL, resolve, validate_detail
+from market_making.market_data.order_book import parse_snapshot
+from market_making.execution.smoke_demo_order import choose_price, diagnostic_preflight, final_send_gate, main, session_gate, timestamp_gate
 
 NOW = datetime(2026, 10, 2, 15, 0, tzinfo=timezone.utc)
 IDS = {"clOrdId": "demo123", "proprietary": "PBCP"}
@@ -67,7 +67,7 @@ class RulesTests(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(PrimaryError):
                 validate_detail({**detail(), **change}, NOW)
 
-    @patch("instrument_rules.get_json")
+    @patch("market_making.market_data.instrument_rules.get_json")
     def test_resolve_no_december_fallback(self, get):
         get.return_value = {"status": "OK", "instruments": [
             {"instrumentId": {"marketId": "ROFX", "symbol": "RFX20/DIC26"}, "cficode": "FXXXSX"}]}
@@ -75,7 +75,7 @@ class RulesTests(unittest.TestCase):
             resolve(Mock(), now=NOW)
         self.assertEqual(get.call_count, 1)
 
-    @patch("instrument_rules.get_json")
+    @patch("market_making.market_data.instrument_rules.get_json")
     def test_resolve_exact_live_pair(self, get):
         get.side_effect = [{"instruments": [detail()]}, {"instrument": detail()}]
         self.assertEqual(resolve(Mock(), now=NOW).symbol, SYMBOL)
@@ -89,7 +89,7 @@ class BookTests(unittest.TestCase):
         self.assertEqual(book.ask, 443000)
         self.assertEqual(book.summary()["spread_ticks"], "20")
         book.gate(NOW, monotonic_now=0)
-        with patch("order_book.datetime") as clock, patch("order_book.time.monotonic", return_value=0):
+        with patch("market_making.market_data.order_book.datetime") as clock, patch("market_making.market_data.order_book.time.monotonic", return_value=0):
             clock.now.return_value = NOW
             self.assertEqual(choose_price(validate_detail(detail(), NOW), book), 440000)
         self.assertEqual(len(parse_snapshot({**snapshot(), "marketData": {"BI": [], "OF": []}}, NOW).bids), 0)
@@ -303,7 +303,7 @@ class RealClientMetadataTests(unittest.TestCase):
                 raise OSError("simulated storage failure")
             return original(path, value, exclusive)
 
-        with patch("demo_execution.durable", side_effect=disk):
+        with patch("market_making.execution.demo_execution.durable", side_effect=disk):
             self.assertFalse(self.run_cleanup())
         restored = json.loads(self.journal.read_text())
         self.assertTrue(restored["fill_observed"])
@@ -321,7 +321,7 @@ class RealClientMetadataTests(unittest.TestCase):
                 raise OSError("persistent storage failure")
             return original(path, value, exclusive)
 
-        with patch("demo_execution.durable", side_effect=disk), self.assertRaises(OSError):
+        with patch("market_making.execution.demo_execution.durable", side_effect=disk), self.assertRaises(OSError):
             self.run_cleanup(polls=1)
         restored = json.loads(self.journal.read_text())
         self.assertTrue(restored["reconciliation_in_progress"])
@@ -453,7 +453,7 @@ class LifecycleTests(unittest.TestCase):
 
         self.client.status.side_effect = None
         self.client.status.return_value = report()
-        with patch("demo_execution.durable", side_effect=disk):
+        with patch("market_making.execution.demo_execution.durable", side_effect=disk):
             self.assertFalse(self.run_cycle())
         self.client.cancel.assert_called_once()
 
@@ -505,7 +505,7 @@ class LifecycleTests(unittest.TestCase):
                 raise OSError("disk")
             return original(path, value, exclusive)
 
-        with patch("demo_execution.durable", side_effect=disk):
+        with patch("market_making.execution.demo_execution.durable", side_effect=disk):
             self.assertFalse(cleanup(self.client, IDS, 440000, self.journal, state, sleep=self.no_sleep))
         self.assertEqual(state["result"], "FAIL_FILL")
 
@@ -592,10 +592,10 @@ class FinalSendGateTests(unittest.TestCase):
                 self.assertEqual(json.loads(journal.read_text())["phase"], "submit_intent")
                 final_send_gate(evidence, book)
 
-            with patch("demo_execution.durable", side_effect=slow_storage), \
-                    patch("smoke_demo_order.timestamp_gate"), \
-                    patch("order_book.time.monotonic", side_effect=lambda: (current[0]-start).total_seconds()), \
-                    patch("order_book.datetime") as book_clock:
+            with patch("market_making.execution.demo_execution.durable", side_effect=slow_storage), \
+                    patch("market_making.execution.smoke_demo_order.timestamp_gate"), \
+                    patch("market_making.market_data.order_book.time.monotonic", side_effect=lambda: (current[0]-start).total_seconds()), \
+                    patch("market_making.market_data.order_book.datetime") as book_clock:
                 book_clock.now.side_effect = lambda *args: current[0]
                 success = lifecycle(client, 440000, journal,
                     lambda: final_send_gate(evidence, book), final_check, sleep=lambda _: None)
@@ -636,15 +636,15 @@ class CLITests(unittest.TestCase):
         client.submit.return_value = IDS
         client.status.side_effect = [report("NEW", leaves="1"), report()]
         client.orders.return_value = []
-        patches = [patch("smoke_demo_order.LOCK", Path(temp)/"lock.json"),
-                   patch("smoke_demo_order.read_review_evidence", return_value={"independently_reviewed": True}),
-                   patch("smoke_demo_order.load_dotenv"), patch("smoke_demo_order.authenticate"),
-                   patch("smoke_demo_order.requests.Session"),
-                   patch("smoke_demo_order.DemoClient", return_value=client),
-                   patch("smoke_demo_order.preflight", return_value=(validate_detail(detail(), NOW),
+        patches = [patch("market_making.execution.smoke_demo_order.LOCK", Path(temp)/"lock.json"),
+                   patch("market_making.execution.smoke_demo_order.read_review_evidence", return_value={"independently_reviewed": True}),
+                   patch("market_making.execution.smoke_demo_order.load_dotenv"), patch("market_making.execution.smoke_demo_order.authenticate"),
+                   patch("market_making.execution.smoke_demo_order.requests.Session"),
+                   patch("market_making.execution.smoke_demo_order.DemoClient", return_value=client),
+                   patch("market_making.execution.smoke_demo_order.preflight", return_value=(validate_detail(detail(), NOW),
                          parse_snapshot(snapshot(), NOW), Decimal(440000))),
-                   patch("smoke_demo_order.final_send_gate"),
-                   patch("smoke_demo_order.diagnostic_preflight", return_value={"status": "READY_FOR_INDEPENDENT_REVIEW",
+                   patch("market_making.execution.smoke_demo_order.final_send_gate"),
+                   patch("market_making.execution.smoke_demo_order.diagnostic_preflight", return_value={"status": "READY_FOR_INDEPENDENT_REVIEW",
                          "blockers": [], "orders_sent": 0, "mode": "read_only_diagnostic", "stages": {}}),
                    patch.dict("os.environ", {"PRIMARY_USER": "private-user", "PRIMARY_PASSWORD": "private-pass",
                                              "PRIMARY_ACCOUNT": "REM123"}),
@@ -684,7 +684,7 @@ class CLITests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             client = self.setup_cli(temp)
             folder = Path(temp)/"expired"
-            with patch("smoke_demo_order.final_send_gate", side_effect=PrimaryError("expired")):
+            with patch("market_making.execution.smoke_demo_order.final_send_gate", side_effect=PrimaryError("expired")):
                 self.assertEqual(main(["--preflight", "--send", "--evidence-dir", str(folder),
                                       "--session-evidence", "reviewed.json"]), 2)
             client.submit.assert_not_called()
@@ -726,7 +726,7 @@ class CLITests(unittest.TestCase):
             self.assertTrue((Path(temp)/"lock.json").exists())
 
     def test_default_no_network_no_env(self):
-        with patch("smoke_demo_order.requests.Session") as session, patch("smoke_demo_order.load_dotenv") as env:
+        with patch("market_making.execution.smoke_demo_order.requests.Session") as session, patch("market_making.execution.smoke_demo_order.load_dotenv") as env:
             with patch("sys.stdout", new=io.StringIO()):
                 self.assertEqual(main([]), 2)
             session.assert_not_called()
@@ -758,9 +758,9 @@ class DiagnosticTests(unittest.TestCase):
         data.pop("timestamp")
         return parse_snapshot(data, datetime.now(timezone.utc))
 
-    @patch("smoke_demo_order.fetch_book")
-    @patch("smoke_demo_order.resolve")
-    @patch("smoke_demo_order.DemoClient")
+    @patch("market_making.execution.smoke_demo_order.fetch_book")
+    @patch("market_making.execution.smoke_demo_order.resolve")
+    @patch("market_making.execution.smoke_demo_order.DemoClient")
     def test_missing_account_session_timestamp_still_discovers_all(self, constructor, resolve_mock, fetch):
         resolve_mock.return_value = validate_detail(detail(), NOW)
         fetch.return_value = self.missing_timestamp_book()
@@ -778,9 +778,9 @@ class DiagnosticTests(unittest.TestCase):
             self.assertIn(blocker, result["blockers"])
         self.assertEqual(result["orders_sent"], 0)
 
-    @patch("smoke_demo_order.fetch_book")
-    @patch("smoke_demo_order.resolve")
-    @patch("smoke_demo_order.DemoClient")
+    @patch("market_making.execution.smoke_demo_order.fetch_book")
+    @patch("market_making.execution.smoke_demo_order.resolve")
+    @patch("market_making.execution.smoke_demo_order.DemoClient")
     def test_empty_history_records_blocked_alternative_never_writes(self, constructor, resolve_mock, fetch):
         resolve_mock.return_value = validate_detail(detail(), NOW)
         fetch.return_value = self.missing_timestamp_book()
@@ -796,7 +796,7 @@ class DiagnosticTests(unittest.TestCase):
         client.cancel.assert_not_called()
 
     def test_no_auth_reports_remaining_gates_without_network(self):
-        with patch("smoke_demo_order.resolve") as resolve_mock, patch("smoke_demo_order.fetch_book") as fetch:
+        with patch("market_making.execution.smoke_demo_order.resolve") as resolve_mock, patch("market_making.execution.smoke_demo_order.fetch_book") as fetch:
             result = diagnostic_preflight(None, "", None)
         resolve_mock.assert_not_called()
         fetch.assert_not_called()
@@ -804,10 +804,10 @@ class DiagnosticTests(unittest.TestCase):
         self.assertIn("PRIMARY_ACCOUNT_MISSING_OR_INVALID", result["blockers"])
         self.assertIn("INDEPENDENT_SAFETY_REVIEW_UNVERIFIED", result["blockers"])
 
-    @patch("smoke_demo_order.fetch_book")
-    @patch("smoke_demo_order.resolve")
-    @patch("smoke_demo_order.session_gate")
-    @patch("smoke_demo_order.timestamp_gate")
+    @patch("market_making.execution.smoke_demo_order.fetch_book")
+    @patch("market_making.execution.smoke_demo_order.resolve")
+    @patch("market_making.execution.smoke_demo_order.session_gate")
+    @patch("market_making.execution.smoke_demo_order.timestamp_gate")
     def test_attestation_does_not_invent_missing_timestamp(self, timestamp, session_gate_mock, resolve_mock, fetch):
         resolve_mock.return_value = validate_detail(detail(), NOW)
         fetch.return_value = self.missing_timestamp_book()

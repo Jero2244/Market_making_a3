@@ -4,8 +4,8 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import math
 import time
-from check_connection import PrimaryError, get_json, instrument_id
-from instrument_rules import MARKET, SYMBOL, number
+from market_making.market_data.check_connection import PrimaryError, get_json, instrument_id
+from market_making.market_data.instrument_rules import MARKET, SYMBOL, number
 
 
 @dataclass(frozen=True)

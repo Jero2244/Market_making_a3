@@ -4,9 +4,9 @@ import json
 import os
 from pathlib import Path
 import requests
-from check_connection import PrimaryError, authenticate, load_dotenv
-from instrument_rules import resolve
-from order_book import fetch_book
+from market_making.market_data.check_connection import PrimaryError, authenticate, load_dotenv
+from market_making.market_data.instrument_rules import resolve
+from market_making.market_data.order_book import fetch_book
 
 
 def main(argv=None):

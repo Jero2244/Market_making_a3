@@ -2,7 +2,7 @@
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
-from check_connection import PrimaryError, get_json, instrument_id, require_field
+from market_making.market_data.check_connection import PrimaryError, get_json, instrument_id, require_field
 
 SYMBOL = "RFX20/OCT26"
 MARKET = "ROFX"

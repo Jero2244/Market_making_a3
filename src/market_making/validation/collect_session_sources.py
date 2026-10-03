@@ -9,7 +9,7 @@ import time
 
 import requests
 
-from validate_live import BA, write_json
+from market_making.validation.validate_live import BA, write_json
 
 
 SOURCES = (
@@ -74,7 +74,11 @@ def collect(output):
     write_json(output / "source_evidence.json", evidence)
 
 
-if __name__ == "__main__":
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output-dir", type=Path, required=True)
-    collect(parser.parse_args().output_dir)
+    collect(parser.parse_args(argv).output_dir)
+
+
+if __name__ == "__main__":
+    main()

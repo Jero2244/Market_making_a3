@@ -6,7 +6,7 @@ from hashlib import sha256
 import json
 from pathlib import Path
 
-from validate_live import observation_acceptance, summarize, write_json
+from market_making.validation.validate_live import observation_acceptance, summarize, write_json
 
 
 def reanalyze(original, output):
@@ -60,12 +60,16 @@ def reanalyze(original, output):
     return result
 
 
-if __name__ == "__main__":
+def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--original-dir", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     result = reanalyze(args.original_dir, args.output_dir)
     for name, item in result["retrospective_observational_stages"].items():
         print(f"retrospective {name}: {item['status']}")
     print("New credentialed runs: 0; strict aggregate exit equivalent: 2")
+
+
+if __name__ == "__main__":
+    main()

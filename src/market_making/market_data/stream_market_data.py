@@ -12,7 +12,7 @@ import time
 import requests
 import websocket
 
-from check_connection import (PrimaryError, authenticate, get_json,
+from market_making.market_data.check_connection import (PrimaryError, authenticate, get_json,
                               instrument_id, load_dotenv, normalize, require_field, safe_payload)
 
 

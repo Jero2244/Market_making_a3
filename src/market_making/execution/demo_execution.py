@@ -11,8 +11,8 @@ import time
 from pathlib import Path
 import requests
 from requests.adapters import HTTPAdapter
-from check_connection import PrimaryError, safe_payload
-from instrument_rules import MARKET, SYMBOL, number
+from market_making.market_data.check_connection import PrimaryError, safe_payload
+from market_making.market_data.instrument_rules import MARKET, SYMBOL, number
 
 HOST = "https://api.remarkets.primary.com.ar"
 PATHS = frozenset({"/rest/order/newSingleOrder", "/rest/order/cancelById",

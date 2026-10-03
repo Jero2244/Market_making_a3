@@ -11,9 +11,9 @@ import sys
 import requests
 import websocket
 
-from check_connection import (BASE_URL, PrimaryError, authenticate, get_json,
+from market_making.market_data.check_connection import (BASE_URL, PrimaryError, authenticate, get_json,
                               instrument_id, load_dotenv, require_field, safe_payload)
-from stream_market_data import (ENTRIES, connect, run, server_timestamps,
+from market_making.market_data.stream_market_data import (ENTRIES, connect, run, server_timestamps,
                                 auth_rejected, subscription_rejected, parse_market_frame, validate_symbol)
 
 BA = timezone(timedelta(hours=-3), "America/Argentina/Buenos_Aires")

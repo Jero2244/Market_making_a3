@@ -8,7 +8,7 @@ from io import StringIO
 
 import websocket
 
-import stream_market_data as md
+import market_making.market_data.stream_market_data as md
 
 
 SYMBOL = "RFX20/OCT26"

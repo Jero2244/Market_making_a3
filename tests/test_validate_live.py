@@ -8,9 +8,9 @@ from unittest.mock import patch, Mock
 
 import websocket
 
-import check_connection as rest
-import stream_market_data as md
-import validate_live as live
+import market_making.market_data.check_connection as rest
+import market_making.market_data.stream_market_data as md
+import market_making.validation.validate_live as live
 from test_stream_market_data import Clock, Socket, SYMBOL
 
 
@@ -447,7 +447,7 @@ class LiveTests(unittest.TestCase):
 
     def test_offline_retrospective_preserves_original_and_exclusive_output(self):
         from hashlib import sha256
-        from reanalyze_demo import reanalyze
+        from market_making.validation.reanalyze_demo import reanalyze
         with tempfile.TemporaryDirectory() as folder:
             original = Path(folder) / "original"
             self.validator_stream(original, [[message()], [message()]], exploratory=True)
