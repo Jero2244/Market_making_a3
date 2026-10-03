@@ -1,0 +1,42 @@
+# Python environments and generated files
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Local credentials and environment files (commit only sanitized templates)
+.env
+.env.*
+!.env.example
+!.env.*.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+.aws/
+.ssh/
+secrets/
+.secrets/
+secrets.json
+secrets.yaml
+secrets.yml
+secrets.toml
+credentials.json
+credentials.yaml
+credentials.yml
+credentials.toml
+credentials-*.json
+service-account*.json
+.streamlit/secrets.toml
+.netrc
+_netrc
+.pypirc
+
+# Local agent state, logs, and runtime data may contain sensitive information
+.opencode/
+*.log
+data/
+.demo_order_lock.json
+.demo_order_lock.json.tmp

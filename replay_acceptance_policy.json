@@ -1,0 +1,27 @@
+{
+  "policy_version": 1,
+  "scope": "Prospective demo captures only; historical comparisons are retrospective, not predefined acceptance",
+  "duration_seconds": 300,
+  "max_receipt_gap_seconds": 20,
+  "max_crossed_observations": 0,
+  "max_spec_violations": 0,
+  "max_receipt_order_errors": 0,
+  "max_duplicate_frames": 0,
+  "min_two_sided_fraction": 1.0,
+  "clock_uncertainty_limit_seconds": 0.1,
+  "capture_dates": ["CONFIRMED_DATE_1", "CONFIRMED_DATE_2"],
+  "expiry_slots": ["AVAILABLE_EXPIRY_1", "AVAILABLE_EXPIRY_2"],
+  "windows_buenos_aires": {
+    "early": "10:35-10:40",
+    "middle": "13:30-13:35",
+    "late": "16:50-16:55"
+  },
+  "run_prerequisites": [
+    "Explicit per-run approval; this policy is not authorization",
+    "Documented corrective change or service-status change since prior credentialed attempt",
+    "Reviewed date-specific exchange calendar, exceptions and REMARKETS applicability",
+    "Exact available catalog futures and verified specifications",
+    "Pre/post capture clock synchronization measurements with uncertainty <= 0.1 seconds",
+    "Fixed REMARKETS demo host, read-only allowlist, new output paths, no retained secrets"
+  ]
+}
