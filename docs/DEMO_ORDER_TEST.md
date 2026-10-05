@@ -1,5 +1,16 @@
 # Single-order demo smoke (submission NOT_RUN/BLOCKED)
 
+## Separate read-only WebSocket milestone
+
+[Order-report observation](WEBSOCKET_ORDER_FLOW.md) is available through
+`python -m market_making.execution.watch_order_reports`, default NOT_RUN.
+Explicit DEMO-only `--live` sends only account-scoped `os` subscriptions, never
+orders/cancellations. Fill/gap evidence is non-authoritative and cannot satisfy
+`monitor_ready`, REST lifecycle status, smoke success, reconciliation, preflight,
+submission gates or lock release. No historical evidence/journal/lock is changed.
+No credentialed validation was performed; freshness and independent-review
+blockers below remain intact.
+
 ## Current policy: 24/7 demo, authoritative freshness still blocked
 
 REMARKETS is a 24/7 test environment: you can submit order requests outside

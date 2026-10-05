@@ -15,7 +15,7 @@ contracts, record market data, inspect snapshots, and assess replay readiness.
 | --- | --- |
 | REST discovery & snapshots | Implemented; historical read-only evidence collected |
 | WebSocket recording & reconnect | Implemented; exploratory transport recovery observed |
-| Offline tests | 123 passing after the project restructure |
+| Offline tests | Historical restructure baseline: 123; transport regressions added separately |
 | Exchange freshness & strict-session validation | **Blocked** — timestamp, clock, and session evidence unresolved |
 | Book reconstruction & strategy replay | **Blocked** — update rules and data quality not yet verified |
 | Demo order sending | **Blocked** — freshness, account readiness, and independent review required |
@@ -95,12 +95,26 @@ and relative `data/` paths.
 | --- | --- |
 | `check-connection` | Discover contracts and fetch REST snapshots |
 | `stream-market-data` | Record read-only WebSocket market data |
-| `view-order-book` | Inspect the exact `ROFX RFX20/OCT26` REST book |
+| `view-order-book` | Exact `ROFX RFX20/OCT26`; REST default, optional raw WebSocket observations |
 | `validate-live` | Run bounded read-only demo validation; requires `--live` for network access |
 | `collect-session-sources` | Fetch public reference and service-status pages |
 | `reanalyze-demo` | Reassess saved evidence offline without modifying originals |
 | `replay-readiness` | Audit saved data against the replay acceptance policy |
 | `smoke-demo-order` | Guarded demo order harness; no network or order by default |
+
+Read-only viewer transport (requires separate authorization before any live use):
+`view-order-book --live --transport websocket --duration 30 --depth 5`.
+Without `--live`, both transports return 2 without network or dotenv loading.
+WebSocket mode prints raw single-frame BI/OF/LA/TV observations with explicit
+omitted/empty/partial/stale/disconnected/generation-reset states; it never merges
+frames into a book. Receipt age is **not exchange quote age**; update semantics
+and exchange freshness remain unverified. A selected retained frame containing
+at least one requested entry (including an explicitly empty entry) is an eligible
+observation, not an executable quote. No eligible observation by deadline returns
+2; interrupts return 130. REST is still the default. WebSocket mode does not call
+REST market-data snapshots, but uses HTTP authentication and exact catalog checks.
+No execution/preflight gates consume these observations. Recorder JSONL output
+and eight console entry points remain unchanged.
 
 **Live validation and demo orders are separate procedures.** REMARKETS is a 24/7
 test environment, not a guarantee of liquidity or fresh quotes. Strict validation
@@ -114,6 +128,16 @@ python -m unittest discover -s tests -v
 ```
 
 ## Project layout
+
+### Read-only order-report milestone
+
+`python -m market_making.execution.watch_order_reports` defaults to NOT_RUN (exit 2).
+Explicit `--live --duration 60 --output NEW_REPORTS.jsonl` enables bounded,
+account-scoped **DEMO observation only**, after separate authorization. Credentials
+come from environment only; no dotenv, orders, cancellations or reconciliation.
+Exit 0 means reports collected, never readiness. See
+[WebSocket order flow](docs/WEBSOCKET_ORDER_FLOW.md). Smoke gates, journals/locks,
+eight console commands and all freshness blockers remain unchanged.
 
 ```text
 src/market_making/
@@ -162,4 +186,5 @@ The full milestones and acceptance criteria are in the [roadmap](docs/PLAN.md).
 | [Freshness specification request](docs/FRESHNESS_SPEC_REQUEST.md) | Required timestamp and clock evidence |
 | [Replay acceptance](docs/REPLAY_ACCEPTANCE.md) | Data quality gates and replay assumptions |
 | [Demo order procedure](docs/DEMO_ORDER_TEST.md) | Safety gates, recovery limitations, and review requirements |
+| [WebSocket order flow](docs/WEBSOCKET_ORDER_FLOW.md) | Read-only account reports, bounded cleanup, and continuity limitations |
 | [Primary API reference](https://apihub.primary.com.ar/assets/docs/Primary-API.pdf) | Official REST and WebSocket documentation |

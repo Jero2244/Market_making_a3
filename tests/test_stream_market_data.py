@@ -56,6 +56,45 @@ class Socket:
 
 
 class StreamTests(unittest.TestCase):
+    def test_nonstandard_constants_never_persist_or_prove_selected_data(self):
+        from test_websocket_session import nonstandard_frames
+        for text in nonstandard_frames():
+            with self.subTest(text=text), tempfile.TemporaryDirectory() as folder:
+                clock = Clock()
+                sock = Socket(clock, [(websocket.ABNF.OPCODE_TEXT, text)])
+                output = Path(folder) / "new.jsonl"
+                with patch.object(md, "authenticate", side_effect=lambda s, u, p: s.headers.update({"X-Auth-Token": "SECRET"})), \
+                     patch.object(md, "get_json", return_value={"instruments": [{"instrumentId": {"marketId": "ROFX", "symbol": SYMBOL}, "cficode": "FXXXSX"}]}):
+                    md.run(SYMBOL, "ROFX", output, "user", "password", duration=2,
+                           connect_fn=lambda token, timeout: sock, clock=clock, sleep=clock.sleep)
+                saved = output.read_text()
+                rows = [json.loads(line) for line in saved.splitlines()]
+                kinds = [row["event"] for row in rows]
+                self.assertNotIn("message", kinds)
+                self.assertNotIn("selected_instrument_observed", kinds)
+                self.assertEqual(kinds.count("control_message"), 1)
+                self.assertFalse(any("raw" in row for row in rows))
+                self.assertNotIn(text, saved)
+                self.assertTrue(sock.closed)
+
+    def test_invalid_utf8_is_withheld_and_recorder_remains_durable(self):
+        clock = Clock()
+        raw = '{"type":"Md","instrumentId":{"marketId":"ROFX","symbol":"RFX20/OCT26"},"marketData":{"BI":[]}}'
+        sock = Socket(clock, [(websocket.ABNF.OPCODE_TEXT, b"\xff"),
+                              (websocket.ABNF.OPCODE_TEXT, raw)])
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "new.jsonl"
+            with patch.object(md, "authenticate", side_effect=lambda s, u, p: s.headers.update({"X-Auth-Token": "SECRET"})), \
+                 patch.object(md, "get_json", return_value={"instruments": [{"instrumentId": {"marketId": "ROFX", "symbol": SYMBOL}, "cficode": "FXXXSX"}]}):
+                md.run(SYMBOL, "ROFX", output, "user", "password", duration=3,
+                       connect_fn=lambda token, timeout: sock, clock=clock, sleep=clock.sleep)
+            rows = [json.loads(line) for line in output.read_text().splitlines()]
+            self.assertEqual(sum(r["event"] == "control_message" for r in rows), 1)
+            self.assertEqual([r["raw"] for r in rows if r["event"] == "message"], [raw])
+            self.assertEqual(rows[-1]["event"], "ended")
+            self.assertTrue(sock.closed)
+            self.assertEqual([message["type"] for message in sock.sent], ["smd"])
+
     def test_validation(self):
         catalog = [{"instrumentId": {"marketId": "ROFX", "symbol": SYMBOL}, "cficode": "FXXXSX"}]
         md.validate_symbol(catalog, "ROFX", SYMBOL)

@@ -5,6 +5,49 @@ For setup and a concise overview, see the [README](../README.md).
 All command examples and `data/` paths below are relative to the repository root.
 Historical results are not current trading or capture approval.
 
+## Shared read-only WebSocket transport (2026-10-05)
+
+`websocket_session.run_session` uses the existing synchronous websocket-client;
+connector, monotonic clock, sleep, authentication/catalog dependencies, UTC clock,
+and consumer factory are injectable. `stream_market_data.run` retains its defaults
+and explicitly forwards its monkeypatch points, including the exclusive/fsync
+Recorder. Existing JSONL event order, raw frame text, and validation FaultConnector
+evidence remain compatible. Consumer failures are terminal, not retried as network
+errors. Invalid UTF-8 is withheld just like malformed/duplicate JSON. The shared
+retention predicate filters plain/escaped/nested credential echoes, sharing the
+mutable registry across renewal so old and new tokens remain protected.
+
+The viewer opts in with `--transport websocket --live`, with finite positive
+`--duration` (default 30 seconds), `--stale-after` (20 seconds), and depth 1..5.
+It uses exact ROFX RFX20/OCT26 catalog validation, never `/rest/marketdata/get`.
+Authentication and catalog remain HTTP; existing REST detail, diagnostics and
+execution snapshot calls are unchanged exceptions to the transport migration.
+Only smd application messages are emitted; ping/pong are transport controls.
+Fixed demo host, redirect refusal, terminal 401/403/subscription rejection,
+bounded backoff, proactive token renewal (separate from reconnect budget),
+resubscription and finally-close behavior are shared with the recorder.
+
+`websocket_observation.Observation` displays the current retained selected frame
+only, capped to requested display depth. Every selected frame replaces the prior
+observation; omitted entries never inherit earlier values. Generation resets and
+disconnects clear all current values. Empty/null values retain their raw distinction
+in output; omitted, partial, stale receipt, disconnected and generation-reset
+states are explicit. Eligibility means a security-retained exact-instrument frame
+contains at least one requested entry, including an explicitly empty entry. It
+does not mean valid executable levels or market liquidity. No such frame by
+deadline returns 2; failures return 2 and interrupts 130. Exchange freshness and
+snapshot/delta semantics remain unverified. No Book.gate, fetch_book, or execution
+preflight consumes WebSocket observations; integrated execution is deferred.
+
+Offline baseline in this temporary worktree: 123 tests, one resource-root failure
+because an older editable install pointed elsewhere. Tests run with this worktree's
+`src` on PYTHONPATH resolve that environment mismatch without changing safeguards.
+Implementation test run: 140 tests reported OK with `$env:PYTHONPATH = "$PWD\src"`
+and `python -m unittest discover -s tests -v` (fake/mock network only). The suite
+loads all eight installed entry-point mappings and runs all eight module `--help`
+commands from outside the repository. Native console launchers are unavailable
+in this environment. This is not independent review or live acceptance evidence.
+
 ## Exact October REST book and isolated demo smoke
 
 REMARKETS is a **24/7 test environment**: you can submit order requests outside

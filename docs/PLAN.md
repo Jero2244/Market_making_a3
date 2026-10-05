@@ -1,5 +1,34 @@
 # RFX 20 market-making project
 
+## Read-only account order-report milestone (2026-10-05)
+
+Added separate `python -m market_making.execution.watch_order_reports` opt-in
+DEMO collector: only account-scoped `os`, strict `or` parsing, sanitized evidence,
+sticky fill/gap observations and bounded reconnect/renewal/cleanup. Offline tests
+exercise injected transports; no credentialed capture or order was attempted.
+See [WEBSOCKET_ORDER_FLOW.md](WEBSOCKET_ORDER_FLOW.md). Default is NOT_RUN, and
+successful collection is not readiness. No integration with REST status/smoke,
+preflight, reconciliation, journals or lock release. Submission/cancellation,
+trading loops, authoritative timestamp/clock provenance, account recovery and
+independent safety review remain blocked/deferred. Historical acceptance below
+is unchanged; this milestone provides no authorization or broker verification.
+
+## Read-only WebSocket viewer implementation (2026-10-05)
+
+Shared injectable synchronous lifecycle now serves the recorder and opt-in
+`view-order-book --live --transport websocket --duration 30 --depth 5`.
+REST remains the default; no network or dotenv loading without `--live`.
+This viewer validates the exact October catalog identity and never calls
+`/rest/marketdata/get`. Authentication/catalog HTTP calls remain necessary;
+REST detail/diagnostic/execution paths remain unchanged and separate.
+Only `smd` application messages are sent. Observations are single-frame raw
+data, with omitted/empty/partial/stale/disconnected/generation-reset states,
+not an authoritative two-sided book or exchange-freshness proof. No eligible
+selected frame by the duration deadline returns 2; terminal failures return 2,
+interrupts 130. Execution integration, timestamp mappings, delta semantics,
+and any orders/cancellations remain deferred. Historical acceptance below is
+not changed by fake-network tests or by this viewer.
+
 Target environment: https://api.remarkets.primary.com.ar
 
 Reference: [Primary API v1.21](https://apihub.primary.com.ar/assets/docs/Primary-API.pdf).
@@ -172,3 +201,134 @@ Final reviewer decisions and measured results belong in the separate new
 and review findings are preserved). Future credentialed captures
 still need explicit approval plus a documented corrective/service-status change,
 reviewed calendar/demo applicability, confirmed contracts and measured clock uncertainty.
+
+## WebSocket migration plan — planning only
+
+### OBJECTIVE
+
+Plan a WebSocket-first migration of all applicable program functions while
+preserving existing behavior, evidence and trading safeguards. Complete REST
+elimination is conditional on Primary supporting equivalent capabilities. No
+implementation has been performed by this documentation task. Documenting this
+plan does not authorize implementation, credentialed testing, orders or relaxing
+any current blockers; implementation and credentialed testing/trading require
+separate authorization.
+
+### ASSUMPTIONS
+
+- `stream_market_data.py` already provides WebSocket recording, heartbeat and
+  reconnect/resubscribe behavior.
+- `demo_execution.py` uses REST for submission, cancellation and monitoring.
+- `order_book.py` handles REST snapshots; WebSocket book semantics still require
+  verification.
+- Authentication, instrument discovery and authoritative account reconciliation
+  may require HTTP rather than WebSockets.
+- Scope is existing functions only, with no new trading capabilities.
+- Implementation, credentialed tests and trading need separate authorization.
+
+### PLAN
+
+#### Phase 1 — Inventory and confirm capabilities
+
+Build and verify a capability mapping before choosing migration paths:
+
+| Existing operation | Proposed mapping and required decision |
+| --- | --- |
+| Authentication and token renewal | HTTP unless an alternative is confirmed. |
+| Instrument discovery and rules | HTTP exceptions unless a WebSocket equivalent is confirmed. |
+| Market snapshots | `smd` subscriptions and `Md` observations, subject to verified snapshot semantics. |
+| Order submission | Validate the WebSocket `no` capability before use. |
+| Order cancellation | Validate the WebSocket `co` capability before use. |
+| Order monitoring | `os` subscription and/or correlated execution reports, with verified coverage. |
+| Account reconciliation | Verify snapshot completeness and recovery; otherwise retain REST or block. |
+| Public reference pages | HTTPS. |
+| Offline analysis and replay | Remain network-free. |
+
+Confirm vendor message fields, identifiers, timestamps, subscription readiness,
+snapshot completion and reconnect behavior. Decision gate: approve explicit HTTP
+exceptions or identify functions that cannot safely run without REST.
+
+#### Phase 2 — Shared WebSocket infrastructure
+
+Reuse the streaming lifecycle for connection/authentication management,
+serialized sends and typed dispatch, subscriptions, bounded queues, deadlines
+and shutdown. Track connection generations and invalidate state when continuity
+is lost. Separate read-only and execution interfaces. Preserve secret filtering
+and authentication protections.
+
+#### Phase 3 — Market consumers
+
+Migrate `check_connection.py`, `view_order_book.py`, `order_book.py` and
+`validate_live.py`, checking required entries and depth. Use a separate WebSocket
+parser rather than treating messages as REST snapshots. Verify full versus
+incremental semantics before reconstructing a book. Invalidate state on
+disconnect, overflow or uncertainty. Preserve the `smoke_demo_order.py`
+freshness block until authoritative freshness is demonstrated.
+
+#### Phase 4 — Execution reports before mutations
+
+Establish account-scoped subscriptions and correlation. Handle duplicates,
+delays, out-of-order reports, fills and conflicts. Require bounded readiness and
+reconciliation. Silence is never proof of an empty account or successful
+cancellation.
+
+#### Phase 5 — Submission and cancellation only when monitoring is ready
+
+Preserve durable intent and unique identifiers, exclusive locks and one-order
+limits. Cancel immediately when valid identifiers are available. Keep fill and
+anomaly evidence sticky, retain locks on uncertainty and never automatically
+resubmit after reconnect. Adapt cleanup, lifecycle and cancel-only recovery
+while preserving unresolved journals.
+
+#### Phase 6 — Evidence and compatibility
+
+Version evidence schemas and update `reanalyze_demo.py` and
+`replay_readiness.py` while preserving historical evidence. Distinguish
+connectivity from freshness, report continuity and account reconciliation.
+
+#### Phase 7 — Offline fault-injection tests and review
+
+Use fake sockets, clocks and persistence failures to cover subscription
+rejection, incomplete snapshots, duplicate/delayed/out-of-order reports,
+disconnect during submission or cancellation, token renewal, overflow,
+restart, uncertain acknowledgements and missing terminal reports. Assert no
+REST remains in migrated paths. Require independent review before any
+separately authorized read-only demo or trading tests.
+
+#### Phase 8 — Optional later documentation
+
+Later, save an approved detailed plan to `docs/WEBSOCKET_MIGRATION_PLAN.md` and
+link it from `README.md` and `docs/PLAN.md`, including the capability matrix,
+exceptions, decisions, safety requirements, tests and blockers. This is future
+optional documentation work: current authorization only appends this plan to
+`docs/PLAN.md`; it does not authorize creating those files or links now.
+
+### RISKS
+
+- Primary may not support equivalent WebSocket capabilities for every operation.
+- Receipt time does not establish authoritative market freshness.
+- Sending on a socket does not establish broker acceptance.
+- Reconnects may omit reports or snapshots needed for safe continuity.
+- Incorrect full/incremental book semantics may produce an invalid book.
+- Migration could weaken existing trading safeguards unless they are preserved.
+- The pinned ROFX RFX20/OCT26 contract must be revalidated before any separately
+  authorized tests; this plan does not authorize changing it or its safeguards.
+
+### ACCEPTANCE CRITERIA
+
+- Every network operation has a verified mapping, approved exception or explicit
+  blocker.
+- Migrated paths no longer make their corresponding REST calls; complete REST
+  elimination remains conditional on supported equivalents.
+- Read-only interfaces cannot submit or cancel, and offline functions remain
+  offline.
+- Missing freshness, report continuity or account reconciliation blocks
+  readiness.
+- Uncertain submission never triggers automatic resubmission.
+- Locks, journals, cancellation safeguards and sticky fill/anomaly evidence
+  remain intact.
+- Regression and fault-injection tests pass, followed by independent review,
+  before separately authorized live activity.
+- Historical evidence remains unchanged and readable.
+- This task is documentation only within its authorization. Migration has not
+  been performed by documenting this plan, and current blockers remain in force.
