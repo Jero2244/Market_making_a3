@@ -17,6 +17,7 @@ dependencies = {file = ["requirements.txt"]}
 where = ["src"]
 
 [project.scripts]
+ppi-readonly = "market_making.ppi.cli:main"
 check-connection = "market_making.market_data.check_connection:main"
 stream-market-data = "market_making.market_data.stream_market_data:main"
 view-order-book = "market_making.market_data.view_order_book:main"

@@ -4,6 +4,41 @@ Target environment: https://api.remarkets.primary.com.ar
 
 Reference: [Primary API v1.21](https://apihub.primary.com.ar/assets/docs/Primary-API.pdf).
 
+## Project checkpoint — 2026-10-08
+
+- The main worktree now includes the separate `market_making.ppi` research package
+  and `ppi-readonly` command. The full offline suite passes **208 tests**.
+- RFX20 REST discovery, WebSocket recording/reconnect, offline readiness analysis
+  and the guarded single-order harness are implemented. Book reconstruction,
+  strategy replay and integrated market making are not ready; existing freshness
+  and execution gates remain blocked.
+- GGAL research supports bounded PPI production discovery, hypothetical carry
+  calculations, and recurring October/December console or NDJSON monitoring.
+  The demo is synthetic. The live-input path uses **PPI production spot and
+  REMARKETS simulated futures**, not two executable production legs.
+- Full returned futures depth is displayed, but modeled edges/capacity use best
+  levels only. Strict checks block unknown book timestamps; explicit manual-check
+  mode exposes potentially stale price comparisons, never verified freshness.
+- No credentialed request or order was made for this checkpoint. Offline tests
+  do not verify entitlements, contract semantics, timestamp scope or profitability.
+
+### Separate GGAL next steps
+
+1. Obtain reviewed exact aware maturities, units/multipliers and contract semantics
+   for `ROFX GGAL/OCT26` and `ROFX GGAL/DIC26`.
+2. Establish PPI spot entitlement and timestamp scope, plus explicit funding-side
+   conventions, rate observation times and direction-specific all-in costs.
+   Default caucion discovery skips undocumented blank-ticker enumeration;
+   `--caucion-ticker` requires an exact broker-reviewed identifier, not a guess.
+3. Complete a local copy of the intentionally invalid watch template. Only after
+   separate authorization, perform a finite bounded read-only check and review
+   statuses/blockers, not just the exit code. Do not infer live acceptance from tests.
+4. Independently review the research implementation. Keep all outputs
+   non-executable; mixed production/demo prices cannot establish real arbitrage.
+
+Procedure and limits: [PPI_GGAL_ARBITRAGE.md](PPI_GGAL_ARBITRAGE.md).
+The RFX20 milestones and historical evidence below remain a separate track.
+
 ## Current freshness next steps — BLOCKED (2026-10-03)
 
 Offline follow-up only; runtime gates, validate_live and replay guards unchanged.

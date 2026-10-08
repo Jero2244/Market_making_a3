@@ -1,0 +1,17 @@
+{
+  "description": "Historical REMARKETS simulated snapshot, not current market data. Sanitized extraction; no response identity was supplied.",
+  "source_file": "data/ggal_dic26_20261008T1504027894574Z.json",
+  "request": {"marketId": "ROFX", "symbol": "GGAL/DIC26", "entries": "BI,OF", "depth": 5},
+  "received_at_utc": "2026-10-08T15:04:03.784692+00:00",
+  "snapshot": {
+    "status": "OK",
+    "marketData": {
+      "BI": [{"price": 6339.0, "size": 6}, {"price": 6204.0, "size": 6}],
+      "OF": [{"price": 6405.0, "size": 6}, {"price": 6486.0, "size": 2}, {"price": 6498.0, "size": 1}],
+      "LA": {"price": 6325.0, "size": 5, "date": 1791469117026},
+      "OP": 6355.0, "TV": 1123, "CL": null, "OI": null,
+      "SE": {"price": 6339.0, "size": null, "date": 1791331200000}
+    },
+    "depth": 5, "aggregated": true
+  }
+}

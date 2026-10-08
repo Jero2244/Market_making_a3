@@ -5,6 +5,21 @@ For setup and a concise overview, see the [README](../README.md).
 All command examples and `data/` paths below are relative to the repository root.
 Historical results are not current trading or capture approval.
 
+## Current offline checkpoint — 2026-10-08
+
+`python -m unittest discover -s tests -v` passes **208 tests**, including the
+separate PPI/GGAL package, transport deadline tests, strict/manual monitoring,
+request-bound REMARKETS books and existing RFX20 regressions. Transport tests use
+mocked or local test infrastructure, not credentialed broker validation.
+
+The new `ppi-readonly` command does not use the execution harness. Its live watch
+combines PPI production spot with simulated REMARKETS futures; results always
+remain non-executable and do not establish verified live freshness. See
+[PPI_GGAL_ARBITRAGE.md](PPI_GGAL_ARBITRAGE.md) for setup, synthetic demo commands,
+protocol limitations and the intentionally incomplete watch configuration.
+No credentialed market-data request or order was made during this docs update.
+Historical test counts below describe their original runs, not this checkpoint.
+
 ## Exact October REST book and isolated demo smoke
 
 REMARKETS is a **24/7 test environment**: you can submit order requests outside
