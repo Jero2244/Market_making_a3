@@ -5,19 +5,39 @@ For setup and a concise overview, see the [README](../README.md).
 All command examples and `data/` paths below are relative to the repository root.
 Historical results are not current trading or capture approval.
 
-## Current offline checkpoint — 2026-10-08
+## Current offline checkpoint — 2026-10-09
 
-`python -m unittest discover -s tests -v` passes **208 tests**, including the
+`python -m unittest discover -s tests -v` passes **249 tests**, including the
 separate PPI/GGAL package, transport deadline tests, strict/manual monitoring,
 request-bound REMARKETS books and existing RFX20 regressions. Transport tests use
 mocked or local test infrastructure, not credentialed broker validation.
+
+The desktop entry point `python -m market_making.desktop.app` (or `ggal-desk`)
+wraps the read-only GGAL checker. The Windows build produces a local, standalone
+`dist/GGALDesk.exe`; source and packaged widget checks passed. Build artifacts
+and credentials remain git-ignored. The Market making tab is a placeholder.
+
+Recurring checks now retain each provider's HTTP session and token. PPI uses
+its returned expiry and refresh token; Primary renews ahead of its documented
+24-hour lifetime. Quote HTTP 401 permits one renewal/retry per provider per
+cycle; 403, repeated rejection and unknown errors stop. Provider reads overlap,
+while each client remains sequential. Request budgets and elapsed deadlines
+restart only at cycle boundaries. Local keep-alive tests confirm pooled reads
+remain cancellable at the deadline and by Stop.
+
+The default interval is 5 seconds and the application minimum is 1 second.
+Acquisition duration counts toward that target. Transient failures back off
+30/60/120/240/300 seconds; successful transport resets the backoff. No sustained
+live polling rate or latency has been measured. Setup and implementation notes:
+[DESKTOP.md](DESKTOP.md), [REFRESH_PERFORMANCE.md](REFRESH_PERFORMANCE.md).
 
 The new `ppi-readonly` command does not use the execution harness. Its live watch
 combines PPI production spot with simulated REMARKETS futures; results always
 remain non-executable and do not establish verified live freshness. See
 [PPI_GGAL_ARBITRAGE.md](PPI_GGAL_ARBITRAGE.md) for setup, synthetic demo commands,
 protocol limitations and the intentionally incomplete watch configuration.
-No credentialed market-data request or order was made during this docs update.
+No credentialed refresh benchmark or order was made during the desktop/session
+update. The separate PPI caucion inspection remains documented in the research guide.
 Historical test counts below describe their original runs, not this checkpoint.
 
 ## Exact October REST book and isolated demo smoke

@@ -26,3 +26,6 @@ validate-live = "market_making.validation.validate_live:main"
 collect-session-sources = "market_making.validation.collect_session_sources:main"
 reanalyze-demo = "market_making.validation.reanalyze_demo:main"
 replay-readiness = "market_making.validation.replay_readiness:main"
+
+[project.gui-scripts]
+ggal-desk = "market_making.desktop.app:main"

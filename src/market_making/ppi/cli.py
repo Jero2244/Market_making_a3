@@ -22,6 +22,13 @@ def interval_seconds(value):
     return result
 
 
+def nonnegative_rate(value):
+    result = float(value)
+    if not math.isfinite(result) or result < 0:
+        raise argparse.ArgumentTypeError("must be a finite nonnegative TNA percentage")
+    return result
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="PPI read-only GGAL discovery and carry research")
     parser.add_argument("command", choices=("credentials-status", "discover", "assess", "watch"))
@@ -29,10 +36,12 @@ def main(argv=None):
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--live", action="store_true", help="Authorize bounded PPI production authentication and market-data reads")
     modes.add_argument("--demo", action="store_true", help="Synthetic offline watch; no credentials or network")
-    parser.add_argument("--watch-config", help="PPI production spot + REMARKETS simulated futures assumptions JSON; PRIMARY_USER/PRIMARY_PASSWORD required")
-    parser.add_argument("--interval", type=interval_seconds, default=30, help="Seconds between batches (live minimum/default 30)")
+    parser.add_argument("--watch-config", help="Optional full arbitrage assumptions JSON; omitted uses pesos and last weekday of month for price/yield comparison")
+    parser.add_argument("--caucion-tna", type=nonnegative_rate, help="Watch live without config: manual caucion annual nominal percentage")
+    parser.add_argument("--interval", type=interval_seconds, default=5, help="Target seconds between cycle starts (live minimum 1, default 5; automatic backoff on provider failures)")
     parser.add_argument("--iterations", type=positive_integer, help="Positive cycle count; omitted means until Ctrl+C")
     parser.add_argument("--json", action="store_true", help="Watch NDJSON: one record per expiry per cycle")
+    parser.add_argument("--verbose", action="store_true", help="Watch only: include full books, calculations and timing diagnostics")
     parser.add_argument("--manual-check", action="store_true", help="Watch only: compare quoted prices despite timestamp/last-trade diagnostics; never fresh or executable")
     parser.add_argument("--spot", type=float, help="Explicit hypothetical ARS/share scenario price, NOT live book")
     parser.add_argument("--tna", type=float, help="Explicit hypothetical percent annual nominal rate")
@@ -45,9 +54,11 @@ def main(argv=None):
             parser.error("assessment scenario options are not accepted by watch")
         if not (args.demo or args.live):
             parser.error("watch requires explicit --demo or --live")
+        if args.caucion_tna is not None and (args.demo or args.watch_config):
+            parser.error("--caucion-tna requires watch --live without --watch-config")
         from .monitor import watch
         return watch(args)
-    if args.demo or args.watch_config or args.json or args.manual_check or args.iterations is not None or args.interval != 30:
+    if args.demo or args.watch_config or args.caucion_tna is not None or args.json or args.verbose or args.manual_check or args.iterations is not None or args.interval != 5:
         parser.error("watch options require watch command")
     if args.caucion_ticker is not None:
         from .discovery import label

@@ -7,15 +7,26 @@ The adapter is separate from Primary. It never imports the order harness.
 It has no order endpoints or account-balance endpoints.
 This adapter is for research. It does not authorize trading.
 
-## Current checkpoint — 2026-10-08
+## Current checkpoint — 2026-10-09
 
-The full project offline suite passes **208 tests**. It covers PPI discovery,
+The full project offline suite passes **249 tests**. It covers PPI discovery,
 carry calculations, bounded transports, recurring watch output, strict/manual
 checks and request-bound REMARKETS depth, plus existing RFX20 regressions.
+It also covers persistent authentication, refresh tokens, bounded recovery,
+provider overlap, polling backoff, pooled-connection deadlines and cancellation,
+and desktop lifecycle behavior. Source and packaged GUI widget checks passed.
 The synthetic watch works without credentials. The live-input path is implemented,
 but offline success is not broker entitlement or live acceptance evidence.
-No credentialed request or order was made during this documentation update.
+No credentialed refresh benchmark or order was made during the desktop/session
+update. The separately recorded 2026-10-09 PPI caucion inspection below does not
+establish live refresh performance or futures freshness.
 Contract, funding and freshness blockers below remain unresolved.
+
+The desktop checker is documented in [DESKTOP.md](DESKTOP.md). It provides the
+simple price/yield comparison and optional full assessment. Recurring GUI/CLI
+monitoring uses persistent sessions, a 5-second default and 1-second application
+minimum, with bounded renewal and automatic provider backoff. Details and
+provider sources: [REFRESH_PERFORMANCE.md](REFRESH_PERFORMANCE.md).
 
 ## Credentials and setup
 
@@ -93,12 +104,15 @@ python -m market_making.ppi.cli assess --spot 100 --tna 30 --days 30 --basis 365
 - The docs show a singleton-array login response. The SDK uses an object.
   The adapter accepts either form.
   It requires an `expirationDate` with timezone information and a future value.
-  It fails closed for malformed or expired tokens, 401 responses and HTTP errors.
-  It does not refresh tokens or retry automatically.
+  It fails closed for malformed authentication. Recurring monitoring renews
+  ahead of the returned expiry and uses `Account/RefreshToken` when supplied.
+  A quote HTTP 401 permits one renewal/retry per provider per cycle; 403,
+  repeated rejection or failed renewal stops. Other one-shot commands retain
+  their bounded, explicit-login behavior.
 
 ### Transport safeguards
 
-The transport permits only login POST and these GET reads:
+The transport permits only login/refresh-token POST and these GET reads:
 InstrumentTypes, Markets, Settlements, SearchInstrument, Book and Current.
 
 - The HTTPS production host is fixed.
@@ -106,7 +120,8 @@ InstrumentTypes, Markets, Settlements, SearchInstrument, Book and Current.
 - Redirects are not permitted.
 - Environment proxy/netrc settings are not used.
 - Connect/read inactivity timeouts are at most 5/10 seconds, capped by remaining budget.
-- The request limit is 32 requests.
+- One-shot discovery has a maximum of 32 requests; recurring monitoring starts
+  a new budget of at most four PPI requests per cycle, including auth/recovery.
 - The checked deadline is 120 seconds.
 - The decompressed response ceiling is 2 MB.
 
@@ -346,7 +361,9 @@ Independent review is still needed.
 `watch` is isolated proxy research. It does not change discovery or `assess`
 requirements. It does not import Primary, order or account code. It never certifies
 metadata or real-time entitlement from a JSON file. A `verified` field is rejected.
-The default polling delay is 30 seconds. Network opt-in is mandatory:
+The default polling interval is 5 seconds (application minimum 1 second).
+Authenticated sessions persist across cycles; see [refresh findings](REFRESH_PERFORMANCE.md).
+Network opt-in is mandatory:
 `--demo` and `--live` are mutually exclusive. There is no implicit mode.
 
 ### Offline procedure: works without credentials
@@ -365,9 +382,27 @@ Do not treat synthetic prices, rates, costs or capacities as observations.
 
 ### Status and signed difference
 
-Each cycle flushes one record per target expiry, even for failures. Console output
-includes `DEMO` or `LIVE-PROXY`, expiry, status, direction, `Fteo-Fobs`, net edge in
-ARS/share, and `NONEXECUTABLE`. `--json` emits strict NDJSON (one JSON object per
+Each cycle flushes one record per target expiry, even for failures. Default console
+output includes `DEMO` or `LIVE-PROXY`, expiry, status, `NONEXECUTABLE` and:
+
+```text
+remarkets book: bid xxxx | ask xxxx, ppi ggal price: bid xxxx | ask xxxx implied yield XX% caucion XX%
+```
+
+Implied yield is gross annual nominal cash-carry yield:
+`(future.bid * price_scale / spot.ask - 1) * basis / days_to_maturity * 100`.
+It always uses cash-carry sides, even when the assessment selects reverse.
+It excludes costs and uses fractional calendar days and the configured 360/365
+basis. Quote prices display in their original provider units; only the yield
+calculation applies `price_scale`. `caucion` is explicitly labeled configured
+borrow TNA, not a fetched/live rate. Negative yields and zero rates are retained.
+Missing/invalid books, identity errors and invalid/expired horizons produce `n/a`.
+Timestamp diagnostics alone do not suppress this price-derived display value;
+the assessment's strict/manual freshness rules and status remain unchanged.
+JSON stores these values under `quote_summary`, with null for unknown numbers.
+
+Add `--verbose` for the previous full calculations, books and timing diagnostics.
+`--json` emits strict NDJSON (one JSON object per
 line; no progress text). Both directions, blockers and caveats are retained.
 NaN and Infinity are not valid output. Every record states `executable: false`
 and `live_freshness_established: false`.
@@ -401,6 +436,39 @@ a no-edge conclusion, unless another fully eligible modeled direction exists.
 Unknown costs are never silently zero. An explicit zero cost is a user assumption.
 
 ### Live-input proxy procedure: prerequisites for the next session
+
+#### Simple price/yield checker without a JSON file
+
+```powershell
+python -m market_making.ppi.cli watch --live --interval 30
+```
+
+This reads the existing `.env` for both providers. The user-assumed defaults are
+ARS prices, conversion scale 1, annual basis 365 and maturity at 23:59:59
+Buenos Aires time on the last Monday-Friday of the target month: October 30
+and December 31, 2026. This calendar proxy does not exclude holidays and is not
+the exchange's contract expiry specification. JSON reports the assumptions.
+Prices and gross implied yield are displayed independently of a funding rate,
+costs or contract multiplier. Status is `PRICE CHECK` for valid quote comparisons;
+structural/identity errors and unavailable prices still yield `NO EVALUABLE`.
+Timestamp diagnostics remain advisory in this price-only mode, which never
+reports freshness, execution eligibility or a theoretical arbitrage status.
+
+Set `CAUCION_TNA` in `src/market_making/ppi/monitor_config.py` to your manual
+percentage or override it with `--caucion-tna` (e.g. `--caucion-tna 30` for an
+explicit assumed 30% TNA). The default is None and displays `n/a`. This option
+only applies to live price-only mode, not demo or a full `--watch-config` run.
+
+On 2026-10-09 a bounded, credentialed PPI read confirmed successful authentication
+and the `CAUCIONES` instrument type. `SearchInstrument` filters for `PESOS` and
+`CAUCION` with `Type=CAUCIONES` both returned empty lists. These two searches do
+not prove that all caucion quotes are unsupported. Official REST documentation
+lists the category and generic search/book/current endpoints but does not specify
+a universal one-day ARS ticker or funding-side rate convention. No reliable
+caucion quote was established, so this checker retains an explicit manual rate
+instead of inventing an identifier, tenor or rate value.
+
+#### Full arbitrage assessment with an explicit JSON file
 
 1. Review PPI production spot access and REMARKETS **simulated** futures availability
    separately. Mixed-environment prices do not establish a real arbitrage.
@@ -443,8 +511,8 @@ Unknown costs are never silently zero. An explicit zero cost is a user assumptio
 9. Start with a short explicit run, after separate network authorization:
 
 ```powershell
-python -m market_making.ppi.cli watch --live --watch-config config/ppi_ggal_watch.local.json --interval 30 --iterations 2
-python -m market_making.ppi.cli watch --live --watch-config config/ppi_ggal_watch.local.json --interval 30 --iterations 2 --json
+python -m market_making.ppi.cli watch --live --manual-check --watch-config config/ppi_ggal_watch.local.json --interval 30 --iterations 2
+python -m market_making.ppi.cli watch --live --manual-check --watch-config config/ppi_ggal_watch.local.json --interval 30 --iterations 2 --json
 ```
 
 Do not include secrets in the input JSON. It is not a credentials file. Review its
@@ -462,17 +530,27 @@ proxies/netrc and retries are off. Both credentials are checked before network.
 The decompressed response ceiling is 2 MB; request inactivity timeouts are at most
 5/10 seconds, capped by remaining budget. Both transports also shut down active
 sockets at the elapsed deadline, including during headers or compressed-body reads.
-It never resets
-a client's budget/deadline or changes private transport fields. No full discovery,
-Current, rate, account or order endpoint is polled. Requests are sequential; batch
-completion time is used to recheck the age of all books. The delay runs **after**
-each batch; cycle starts can be more than 30 seconds apart. Live delays below 30
-seconds are rejected. The cycle count is positive, or unlimited if omitted.
+Each recurring cycle starts a new bounded budget (at most four PPI and five
+Primary requests, including renewal/recovery) and elapsed deadline using the
+adapters' explicit watch-cycle methods. HTTP sessions, pools and valid tokens
+remain open. No full discovery, Current, rate, account or order endpoint is
+polled. Spot and futures provider reads overlap, with each client used
+sequentially. Batch completion rechecks all books' ages. Acquisition time is
+subtracted from the selected interval; slow cycles never overlap. Live
+intervals below 1 second are rejected. The cycle count is positive, or
+unlimited if omitted. Broker/account rate allowances remain unverified.
 
 All clients close on normal completion, errors and Ctrl+C (exit code 130).
-Authentication failures stop with a sanitized alert (exit code 2); there is no
-token-refresh or immediate retry. Selected transport/HTTP 429/5xx transient errors
-produce `NO EVALUABLE` for both expiries and wait the regular interval. Unknown
+PPI renews before its returned expiry, using `Account/RefreshToken` when the
+server supplied a refresh token, otherwise login. Primary renews one minute
+before its documented 24-hour lifetime. A quote HTTP 401 permits at most one
+renewal and one retry per provider per cycle. A second 401, 403 or invalid
+authentication stops with a sanitized alert (exit code 2). Selected
+transport/HTTP 429/5xx errors produce `NO EVALUABLE` and trigger exponential
+backoff from 30 to 300 seconds. A recoverable futures
+snapshot failure is isolated to that leg: current-cycle spot and the other
+future remain visible and the unaffected pair is evaluated. Login or spot
+transport failures make both pairs unavailable. Unknown
 failures stop with static codes, never arbitrary exception/server text. A bounded
 run containing only transient unavailable cycles can exit 0: inspect statuses,
 not just process exit code. Ctrl+C during sleep also stops.
@@ -498,7 +576,7 @@ All returned BI/OF levels are retained and sorted best first (bids descending,
 offers ascending). Each side must contain 1–5 finite positive prices and positive
 integer contract quantities, without duplicate prices or crossed/locked best
 prices. A request for depth 5 can legitimately return fewer levels.
-Console output includes a concise `BOOK` line with `pricexquantity` levels, counts,
+Verbose console output includes a `BOOK` line with `pricexquantity` levels, counts,
 symbol, market, simulated environment, depth, identity basis and receipt/source
 timestamps. NDJSON includes `books.spot` and `books.future`, with complete levels
 and quantities, counts, requested depth, provider/environment and diagnostics.
@@ -506,8 +584,12 @@ PPI does not request explicit depth, so its `requested_depth` is null.
 `source_timestamp_verified` is always false. REMARKETS source timestamp remains
 null; receipt is local acquisition time, not a freshness certificate. Valid books
 remain visible when strict evaluation is `NO EVALUABLE` for missing freshness.
-Malformed/authentication/identity failures discard the whole cycle; no previous
-book is reused. Calculations and capacity still use **best levels only**, with no
+Missing sides, malformed books and identity errors block the affected expiry
+explicitly, without suppressing a valid other expiry. Unavailable spot blocks both
+pairs; normalized valid levels remain visible. Unrecoverable authentication stops the run;
+recoverable futures transport failures retain the unaffected current-cycle books
+with sanitized leg-local diagnostics. No previous book is reused.
+Empty books do not prove market closure. Calculations and capacity still use **best levels only**, with no
 VWAP, cumulative-depth fill, calendar spread or trading path.
 
 Small offline fixtures in `tests/fixtures/remarkets_ggal_{oct26,dic26}.json` retain
@@ -519,9 +601,11 @@ without catalogs or credentials. Historical simulated levels:
 
 These are test evidence of response shape, not current market observations.
 
-**Warning:** Re-authentication every cycle can cause PPI login limits or market-data
-throttling. Do not decrease the interval to work around unavailable data. Increase
-it, use a finite run, and stop/review repeated throttling or service failures.
+Recurring checks no longer re-authenticate every cycle. Provider throttling or
+transport failure slows polling automatically; a futures HTTP 429 suppresses
+remaining futures reads in that cycle. Faster polling does not establish
+source freshness or resolve unavailable books. Use a finite run when assessing
+the behavior of a shorter interval.
 This implementation has not made live requests to validate entitlement, schemas,
 specific contracts, timestamp meanings or login-rate policy. No real GGAL
 October/December edge is established by implementation tests.
@@ -552,7 +636,19 @@ still run but become advisory. Books and their parser diagnostics are not change
 receipt time never substitutes for source time. Zero traded volume is not quoted
 depth and does not block either mode; positive quoted quantities remain required.
 
-Console records carry `MANUAL-CHECK`, `Fteo`, `Fobs` and `Fteo-Fobs`; NDJSON records
+**Seconds of skew never veto the manual comparison.** Offline checks cover
+0/1/5/29/31/120-second skew with identical price edges and eligibility. Both
+spot and futures verbose `BOOK` lines show source and receipt timestamps, source/receipt
+ages in seconds and leg-specific timestamp warnings. JSON stores these as
+`source_age_seconds`, `receipt_age_seconds` and `timestamp_warnings` under each
+book. `timing.source_skew_seconds` is the absolute difference of aware source
+times; it is null if either is unknown/naive. `timing.receipt_skew_seconds` is
+local acquisition skew only, not exchange synchronization. Ages can be negative
+for future timestamps. Missing, naive, stale and future source times are all
+advisory in manual mode. `timing.policy=advisory_manual` makes this explicit;
+omitting the flag preserves the existing strict source-age gates.
+
+Console records carry `MANUAL-CHECK`; verbose output adds `Fteo`, `Fobs` and `Fteo-Fobs`. NDJSON records
 include `manual_check: true` and per-direction theoretical/observed/difference
 values, including on unsuccessful cycles (unavailable values are null).
 `executable` and `live_freshness_established` remain false. The freshness caveat

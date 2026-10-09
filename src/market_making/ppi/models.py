@@ -7,7 +7,10 @@ import math
 def number(value, *, positive=True):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError("invalid_numeric_field")
-    value = float(value)
+    try:
+        value = float(value)
+    except OverflowError:
+        raise ValueError("invalid_numeric_field") from None
     if not math.isfinite(value) or (value <= 0 if positive else value < 0):
         raise ValueError("invalid_numeric_field")
     return value

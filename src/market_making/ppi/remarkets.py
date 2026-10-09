@@ -127,15 +127,33 @@ class Client:
         self.session.trust_env = False
         self._transport = DeadlineTransport(self.session)
         self._token = None
+        self._renew_at = None
         self.remaining = min(max_requests, 3)
         self.deadline = time.monotonic() + 60
 
     def close(self):
         self._token = None
+        self._renew_at = None
         try:
             self.session.close()
         finally:
             self._transport.close()
+
+    def cancel(self):
+        self._transport.cancel()
+
+    def begin_watch_cycle(self):
+        if self._transport.expired:
+            raise PPIError("response_limit_exceeded")
+        self.remaining = 5  # Two quotes plus auth and one bounded 401 recovery.
+        self.deadline = time.monotonic() + 60
+
+    def ensure_authenticated(self):
+        if not self._token or self._renew_at is None or time.monotonic() >= self._renew_at:
+            self.login()
+
+    def renew_authentication(self):
+        self.login()
 
     def _request(self, login=False, params=None):
         if not self.live:
@@ -144,6 +162,8 @@ class Client:
             raise PPIError("credentials_unavailable")
         if not login and not self._token:
             raise PPIError("authentication_missing_or_expired")
+        if self._transport.expired:
+            raise PPIError("response_limit_exceeded")
         if self.remaining <= 0 or time.monotonic() >= self.deadline:
             raise PPIError("request_budget_exhausted")
         secrets = list(self.credentials.values.values()) + [self._token]
@@ -174,6 +194,8 @@ class Client:
                 if not isinstance(token, str) or not token or len(token) > 8192 or any(c.isspace() or ord(c) < 32 for c in token):
                     raise PPIError("invalid_authentication_response")
                 self._token = token
+                # Primary documents a 24-hour token lifetime; renew one minute early.
+                self._renew_at = time.monotonic() + 24 * 3600 - 60
                 return None
             size, chunks = 0, []
             for chunk in response.iter_content(65536):
@@ -213,6 +235,7 @@ class Client:
 
     def login(self):
         self._token = None
+        self._renew_at = None
         self._request(login=True)
 
     def snapshot(self, instrument):

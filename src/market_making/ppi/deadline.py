@@ -73,6 +73,12 @@ class DeadlineTransport:
             sock.close()
             raise
         with self.lock:
+            # Each client serializes its requests. A replacement TCP connection
+            # supersedes the prior cancellation handle; keep one handle per
+            # client rather than leaking duplicates throughout a long watch.
+            for previous in self.sockets:
+                previous.close()
+            self.sockets.clear()
             self.sockets.add(cancellation)
             if self.expired:
                 self.shutdown(cancellation)
@@ -82,6 +88,13 @@ class DeadlineTransport:
             sockets, self.sockets = self.sockets, set()
             for sock in sockets:
                 sock.close()
+
+    def cancel(self):
+        """Interrupt an active read, handshake, or later connection registration."""
+        with self.lock:
+            self.expired = True
+            for sock in self.sockets:
+                self.shutdown(sock)
 
     @contextmanager
     def bound(self, deadline, error):

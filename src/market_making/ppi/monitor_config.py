@@ -1,10 +1,38 @@
 """Explicit proxy assumptions, not a metadata verification/execution bypass."""
 import json
+import calendar
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from .models import number, timestamp
 
 TARGETS = ("2026-10", "2026-12")
 SYMBOLS = {"2026-10": "GGAL/OCT26", "2026-12": "GGAL/DIC26"}
+
+# Optional manual caucion TNA percentage. Leave None to display n/a, or set
+# your rate here. --caucion-tna overrides this value for a single run.
+CAUCION_TNA = None
+
+
+def last_weekday_maturity(expiry):
+    """User's calendar proxy: last Mon-Fri, end of day in Buenos Aires."""
+    year, month = map(int, expiry.split('-'))
+    maturity = datetime(year, month, calendar.monthrange(year, month)[1],
+                        23, 59, 59, tzinfo=timezone(timedelta(hours=-3)))
+    while maturity.weekday() >= 5:
+        maturity -= timedelta(days=1)
+    return maturity.isoformat()
+
+
+def default_watch_config(caucion_tna=None):
+    """Price/yield comparison using user assumptions, without trade inputs."""
+    rate = CAUCION_TNA if caucion_tna is None else caucion_tna
+    if rate is not None:
+        rate = number(rate, positive=False)
+    return {"quote_only": True, "spot": {"ticker": "GGAL", "type": "ACCIONES", "settlement": "INMEDIATA"},
+            "futures": [{"expiry": expiry, "symbol": SYMBOLS[expiry], "market_id": "ROFX",
+                         "provider": "remarkets", "maturity": last_weekday_maturity(expiry), "price_scale": 1}
+                        for expiry in TARGETS],
+            "rates": {"borrow_tna": rate, "lend_tna": None, "basis": 365}, "max_age_seconds": 30}
 
 
 def _keys(value, keys):

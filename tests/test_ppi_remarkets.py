@@ -138,6 +138,15 @@ class RequestBoundBooksTests(unittest.TestCase):
             with redirect_stdout(output):
                 monitor.emit(reports)
             text = output.getvalue()
+            self.assertEqual(len(text.splitlines()), 2)
+            for fragment in ("remarkets book: bid 6125.00 | ask 6130.00, ppi ggal price: bid 6100.00 | ask 6105.00",
+                             "remarkets book: bid 6339.00 | ask 6405.00", "implied yield 5.20% caucion 36.00%",
+                             "implied yield 16.65% caucion 36.00%"):
+                self.assertIn(fragment, text)
+            output = io.StringIO()
+            with redirect_stdout(output):
+                monitor.emit(reports, verbose=True)
+            text = output.getvalue()
             for fragment in ("GGAL/OCT26 ROFX REMARKETS simulated", "BI[4]=6125x1,6120x15,6112x2,6000x1",
                              "OF[3]=6405x6,6486x2,6498x1", "identity=request-bound", "source=null (unverified)"):
                 self.assertIn(fragment, text)
@@ -268,15 +277,20 @@ class TransportTests(unittest.TestCase):
 
 
 class RoutingTests(unittest.TestCase):
-    def test_malformed_batch_does_not_emit_partial_manual_signal(self):
+    def test_malformed_expiry_does_not_suppress_valid_manual_pair(self):
         spot, primary = Mock(), primary_client()
         spot.get.return_value = raw_book()
         primary.snapshot.side_effect = [snapshot(), {}]
         with patch.object(monitor, "Client", return_value=spot), \
                 patch.object(monitor, "RemarketsClient", return_value=primary), \
-                self.assertRaisesRegex(PPIError, "invalid_market_data_response"):
-            monitor.live_cycle(config(), Mock(ready=True), 1,
-                               primary_credentials=Mock(ready=True), manual_check=True)
+                patch.object(monitor, "datetime", wraps=datetime) as clock:
+            clock.now.return_value = NOW
+            reports = monitor.live_cycle(config(), Mock(ready=True), 1,
+                                         primary_credentials=Mock(ready=True), manual_check=True)
+        self.assertEqual(reports[0]['status'], monitor.EDGE)
+        self.assertEqual(reports[1]['status'], monitor.UNAVAILABLE)
+        self.assertIn('malformed_remarkets_market_data', reports[1]['blockers'])
+        self.assertIsNotNone(reports[1]['books'])
         self.assertEqual(spot.get.call_count, 1)
         self.assertEqual(primary.snapshot.call_count, 2)
         spot.close.assert_called_once()
@@ -296,7 +310,7 @@ class RoutingTests(unittest.TestCase):
             elif stage == "primary_login":
                 primary.login.side_effect = PPIError("http_failure_403")
             elif stage in ("second_snapshot", "interrupt"):
-                primary.snapshot.side_effect = [snapshot(), KeyboardInterrupt() if stage == "interrupt" else PPIError("http_failure_503")]
+                primary.snapshot.side_effect = [snapshot(), KeyboardInterrupt() if stage == "interrupt" else PPIError("sensitive_response_withheld")]
             with patch.object(monitor, "Client", return_value=spot), \
                     patch.object(monitor, "RemarketsClient", side_effect=RuntimeError() if stage == "construction" else None,
                                  return_value=primary), self.assertRaises((PPIError, RuntimeError, KeyboardInterrupt)):

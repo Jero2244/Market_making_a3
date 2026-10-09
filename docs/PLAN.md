@@ -4,10 +4,17 @@ Target environment: https://api.remarkets.primary.com.ar
 
 Reference: [Primary API v1.21](https://apihub.primary.com.ar/assets/docs/Primary-API.pdf).
 
-## Project checkpoint — 2026-10-08
+## Project checkpoint — 2026-10-09
 
 - The main worktree now includes the separate `market_making.ppi` research package
-  and `ppi-readonly` command. The full offline suite passes **208 tests**.
+  and `ppi-readonly` command. The full offline suite passes **249 tests**.
+- [GGAL Desk](DESKTOP.md) provides a native Windows interface and a locally
+  verified executable, with Start/Stop, synthetic demo, prices/yields, settings,
+  normalized depth and snapshot export. The Market making tab is a placeholder.
+- Recurring GUI/CLI checks reuse authentication and HTTP pools, overlap spot
+  and futures provider reads, renew expired tokens with bounded recovery, and
+  back off on transient failures. The default interval is 5 seconds and the
+  application minimum is 1 second; account rate capacity is not verified.
 - RFX20 REST discovery, WebSocket recording/reconnect, offline readiness analysis
   and the guarded single-order harness are implemented. Book reconstruction,
   strategy replay and integrated market making are not ready; existing freshness
@@ -19,10 +26,17 @@ Reference: [Primary API v1.21](https://apihub.primary.com.ar/assets/docs/Primary
 - Full returned futures depth is displayed, but modeled edges/capacity use best
   levels only. Strict checks block unknown book timestamps; explicit manual-check
   mode exposes potentially stale price comparisons, never verified freshness.
-- No credentialed request or order was made for this checkpoint. Offline tests
+- No credentialed refresh benchmark or order was made for the desktop/session
+  update. The separately documented PPI caucion inspection is preserved in the
+  research guide. Offline tests
   do not verify entitlements, contract semantics, timestamp scope or profitability.
 
 ### Separate GGAL next steps
+
+Validate live refresh latency/account limits and the providers' streaming
+subscriptions before moving the checker from REST polling to event updates.
+Review snapshot/delta rules, trade events, reconnects and timestamps. See
+[REFRESH_PERFORMANCE.md](REFRESH_PERFORMANCE.md).
 
 1. Obtain reviewed exact aware maturities, units/multipliers and contract semantics
    for `ROFX GGAL/OCT26` and `ROFX GGAL/DIC26`.

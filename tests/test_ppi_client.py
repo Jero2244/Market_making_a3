@@ -27,7 +27,7 @@ class ClientTests(unittest.TestCase):
         for endpoint, method in [('Order/Confirm', 'POST'), ('Order/ActiveOrders', 'GET'),
                                  ('Account/Accounts', 'GET'), ('Configuration/Markets', 'POST'),
                                  ('https://evil.test', 'GET'), ('../Order/Confirm', 'GET'),
-                                 ('MarketData/Book?secret=yes', 'GET'), ('Account/RefreshToken', 'POST')]:
+                                 ('MarketData/Book?secret=yes', 'GET'), ('Account/RefreshToken', 'GET')]:
             with self.subTest(endpoint=endpoint):
                 with self.assertRaisesRegex(PPIError, 'forbidden_endpoint'):
                     self.client.request(endpoint, method=method)
@@ -96,7 +96,7 @@ class ClientTests(unittest.TestCase):
             self.client.login()
 
     def test_allowlist_has_no_execution_routes(self):
-        self.assertEqual([x for x, method in ALLOWLIST.items() if method != 'GET'], ['Account/LoginApi'])
+        self.assertEqual([x for x, method in ALLOWLIST.items() if method != 'GET'], ['Account/LoginApi', 'Account/RefreshToken'])
         self.assertFalse(any('Order' in x for x in ALLOWLIST))
 
     def test_caucion_http400_each_stage_no_retry_and_response_closure(self):

@@ -9,6 +9,7 @@ from .deadline import DeadlineTransport
 BASE_URL = "https://clientapi.portfoliopersonal.com/api/1.0/"
 ALLOWLIST = {
     "Account/LoginApi": "POST",
+    "Account/RefreshToken": "POST",
     "Configuration/InstrumentTypes": "GET",
     "Configuration/Markets": "GET",
     "Configuration/Settlements": "GET",
@@ -50,20 +51,48 @@ class Client:
         self._transport = DeadlineTransport(self.session)
         self._token = None
         self._expiry = None
+        self._refresh_token = None
         self.remaining = min(max_requests, 32)
         self.deadline = time.monotonic() + 120
 
     def close(self):
         self._token = None
         self._expiry = None
+        self._refresh_token = None
         try:
             self.session.close()
         finally:
             self._transport.close()
 
-    def request(self, endpoint, *, method="GET", params=None):
+    def cancel(self):
+        self._transport.cancel()
+
+    def begin_watch_cycle(self):
+        """Renew the bounded budget, retaining authentication and pooled HTTP."""
+        if self._transport.expired:
+            raise PPIError("response_limit_exceeded")
+        self.remaining = 4  # Initial/renew auth, quote, at most one 401 recovery.
+        self.deadline = time.monotonic() + 120
+
+    def ensure_authenticated(self):
+        if not self._token or self._expiry <= datetime.now(timezone.utc) + timedelta(seconds=30):
+            self.renew_authentication()
+
+    def renew_authentication(self):
+        if self._refresh_token:
+            data = self.request("Account/RefreshToken", method="POST",
+                                body={"refreshToken": self._refresh_token})
+            self._accept_authentication(data)
+        else:
+            self.login()
+
+    def request(self, endpoint, *, method="GET", params=None, body=None):
         if ALLOWLIST.get(endpoint) != method:
             raise PPIError("forbidden_endpoint")
+        is_refresh = endpoint == "Account/RefreshToken"
+        if ((is_refresh and (not self._refresh_token or body != {"refreshToken": self._refresh_token} or params is not None))
+                or (not is_refresh and body is not None)):
+            raise PPIError("forbidden_parameters")
         if params is not None and (not isinstance(params, dict) or
                                   not set(params).issubset(PARAMETERS.get(endpoint, set())) or
                                   any(not isinstance(v, str) or len(v) > 200 or any(ord(c) < 32 for c in v) for v in params.values())):
@@ -72,19 +101,22 @@ class Client:
             raise PPIError("live_opt_in_required")
         if not self.credentials.ready:
             raise PPIError("credentials_unavailable")
-        sensitive = list(self.credentials.values.values()) + [self._token]
+        sensitive = list(self.credentials.values.values()) + [self._token, self._refresh_token]
         if params and any(secret and secret in value for secret in sensitive for value in params.values()):
             raise PPIError("sensitive_parameters_withheld")
+        if self._transport.expired:
+            raise PPIError("response_limit_exceeded")
         if self.remaining <= 0 or time.monotonic() >= self.deadline:
             raise PPIError("request_budget_exhausted")
         is_login = endpoint == "Account/LoginApi"
-        if not is_login and (not self._token or datetime.now(timezone.utc) >= self._expiry):
+        is_auth = is_login or is_refresh
+        if not is_auth and (not self._token or datetime.now(timezone.utc) >= self._expiry):
             raise PPIError("authentication_missing_or_expired")
         headers = {"Accept": "application/json", "AuthorizedClient": self.credentials.values[KEYS[2]],
                    "ClientKey": self.credentials.values[KEYS[3]]}
         if is_login:
             headers.update(ApiKey=self.credentials.values[KEYS[0]], ApiSecret=self.credentials.values[KEYS[1]])
-        else:
+        elif not is_refresh:
             headers["Authorization"] = "Bearer " + self._token
         self.remaining -= 1
         response = None
@@ -92,9 +124,10 @@ class Client:
         bound.__enter__()
         try:
             remaining = max(.001, self.deadline - time.monotonic())
+            extra = {"json": body} if is_refresh else {}
             response = self.session.request(method, BASE_URL + endpoint, params=params, headers=headers,
                                             timeout=(min(5, remaining), min(10, remaining)),
-                                            allow_redirects=False, verify=True, stream=True)
+                                            allow_redirects=False, verify=True, stream=True, **extra)
             if response.status_code != 200:
                 if response.status_code == 401:
                     self._token = None
@@ -108,7 +141,7 @@ class Client:
                     raise PPIError("response_limit_exceeded")
                 chunks.append(chunk)
             data = json.loads(b"".join(chunks))
-            if not is_login:
+            if not is_auth:
                 # Fail closed on credential/token echoes anywhere in decoded JSON,
                 # including escaped/nested strings. Never print the raw response.
                 pending = [data]
@@ -136,19 +169,28 @@ class Client:
     def login(self):
         self._token = None
         self._expiry = None
+        self._refresh_token = None
         data = self.request("Account/LoginApi", method="POST")
+        self._accept_authentication(data)
+
+    def _accept_authentication(self, data):
         if isinstance(data, list) and len(data) == 1:
             data = data[0]
         try:
             token = data["accessToken"]
+            refresh = data.get("refreshToken")
             expiry = datetime.fromisoformat(data["expirationDate"].replace("Z", "+00:00"))
-            if not isinstance(token, str) or not token or any(c.isspace() for c in token):
+            if not isinstance(token, str) or not token or len(token) > 8192 or any(c.isspace() or ord(c) < 32 for c in token):
+                raise ValueError
+            if refresh is not None and (not isinstance(refresh, str) or not refresh or len(refresh) > 8192
+                                        or any(c.isspace() or ord(c) < 32 for c in refresh)):
                 raise ValueError
             if expiry.tzinfo is None or expiry <= datetime.now(timezone.utc) + timedelta(seconds=5):
                 raise ValueError
         except (KeyError, TypeError, ValueError, AttributeError):
             raise PPIError("invalid_authentication_response") from None
         self._token, self._expiry = token, expiry
+        self._refresh_token = refresh
 
     def get(self, endpoint, params=None):
         return self.request(endpoint, params=params)
