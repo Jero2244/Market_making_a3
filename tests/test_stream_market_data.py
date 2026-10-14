@@ -9,6 +9,7 @@ from io import StringIO
 import websocket
 
 import market_making.market_data.stream_market_data as md
+from market_making.market_data.reference_clock import ReferenceClock, Sample
 
 
 SYMBOL = "RFX20/OCT26"
@@ -56,6 +57,39 @@ class Socket:
 
 
 class StreamTests(unittest.TestCase):
+    def test_live_path_records_corrected_candidate_age_and_clock_provenance(self):
+        clock = Clock()
+        clock.value = 100
+        reference = ReferenceClock.from_samples([
+            Sample("one", 1.5, 0.01, 1700000000, 100, 0.01, 2),
+            Sample("two", 1.5, 0.01, 1700000000, 100, 0.01, 2)])
+        raw = json.dumps({"type": "Md", "timestamp": 1700000002480,
+                          "instrumentId": {"marketId": "ROFX", "symbol": SYMBOL},
+                          "marketData": {"BI": [], "OF": []}})
+        sock = Socket(clock, [(websocket.ABNF.OPCODE_TEXT, raw)])
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "clock.jsonl"
+            with patch.object(md, "authenticate", side_effect=lambda s, u, p: s.headers.update({"X-Auth-Token": "SECRET"})), \
+                 patch.object(md, "get_json", return_value={"instruments": [{"instrumentId": {"marketId": "ROFX", "symbol": SYMBOL}, "cficode": "FXXXSX"}]}):
+                md.run(SYMBOL, "ROFX", output, "unique-user", "unique-password", duration=2,
+                       connect_fn=lambda token, timeout: sock, clock=clock, sleep=clock.sleep,
+                       reference_clock=reference, wall_clock=lambda: 1700000000+clock()-100)
+            rows = [json.loads(line) for line in output.read_text().splitlines()]
+            self.assertEqual(rows[1]["event"], "clock_calibration")
+            message = next(r for r in rows if r["event"] == "message")
+            diagnostics = message["timestamp_diagnostics"]
+            self.assertAlmostEqual(diagnostics["estimated_message_age_seconds"], 0.02, places=5)
+            self.assertEqual(diagnostics["clock"]["sources"], ["one", "two"])
+            self.assertFalse(diagnostics["timestamp_authoritative"])
+            self.assertEqual(message["raw"], raw)
+
+    def test_other_futures_and_invalid_utf8(self):
+        md.validate_symbol([{"instrumentId": {"marketId": "ROFX", "symbol": "DLR/DIC26"},
+                             "cficode": "FXXXSX"}], "ROFX", "DLR/DIC26")
+        self.assertEqual(md.parse_market_frame(b"\xff"), (None, False))
+        self.assertEqual(md.parse_market_frame('{"type":"Md","marketData":{"BI":NaN}}'),
+                         (None, False))
+
     def test_validation(self):
         catalog = [{"instrumentId": {"marketId": "ROFX", "symbol": SYMBOL}, "cficode": "FXXXSX"}]
         md.validate_symbol(catalog, "ROFX", SYMBOL)
@@ -99,12 +133,33 @@ class StreamTests(unittest.TestCase):
             self.assertEqual(len([r for r in rows if r["event"] == "subscription_sent"]), 2)
             self.assertEqual(len([r for r in rows if r["event"] == "selected_instrument_observed"]), 2)
             self.assertEqual(len([r for r in rows if r["event"] == "message"]), 2)
+            self.assertEqual([r["generation"] for r in rows if r["event"] == "message"], [1, 2])
+            self.assertEqual([r["sequence"] for r in rows if r["event"] == "message"], [1, 2])
+            self.assertTrue(all("received_monotonic" in r for r in rows if r["event"] == "message"))
+            self.assertGreater(rows[-1]["recording_metrics_before_end"]["completed_writes"], 0)
             self.assertEqual([r for r in rows if r["event"] == "message"][0]["raw"], raw)
             self.assertEqual([r for r in rows if r["event"] == "message"][0]["server_timestamps"],
                              {"marketData.BI[0].date": "server-date"})
             self.assertNotIn("SECRET", output.read_text())
             with self.assertRaises(FileExistsError):
                 md.Recorder(output)
+
+    def test_invalid_utf8_does_not_crash_receiver_or_refresh_instrument(self):
+        clock = Clock()
+        sock = Socket(clock, [(websocket.ABNF.OPCODE_TEXT, b"\xff"),
+                              (websocket.ABNF.OPCODE_PONG, b"")])
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "malformed.jsonl"
+            with patch.object(md, "authenticate", side_effect=lambda s, u, p: s.headers.update({"X-Auth-Token": "token"})), \
+                 patch.object(md, "get_json", return_value={"instruments": [{"instrumentId": {"marketId": "ROFX", "symbol": SYMBOL}, "cficode": "FXXXSX"}]}):
+                md.run(SYMBOL, "ROFX", output, "user", "password", duration=3,
+                       stale_after=10, interval=1, connect_fn=lambda token, timeout: sock,
+                       clock=clock, sleep=clock.sleep)
+            rows = [json.loads(line) for line in output.read_text().splitlines()]
+            self.assertEqual(len([r for r in rows if r["event"] == "control_message"]), 1)
+            self.assertNotIn("selected_instrument_observed", output.read_text())
+            self.assertEqual(rows[-1]["status"]["instrument"]["state"], "missing")
+            self.assertTrue(sock.closed)
 
     def test_auth_rejection_and_write_error(self):
         self.assertTrue(md.auth_rejected({"status": 401}))

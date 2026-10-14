@@ -20,6 +20,7 @@ COMMANDS = {
     "ppi-readonly": "market_making.ppi.cli",
     "check-connection": "market_making.market_data.check_connection",
     "stream-market-data": "market_making.market_data.stream_market_data",
+    "snapshot-market-data": "market_making.market_data.snapshot_feed",
     "view-order-book": "market_making.market_data.view_order_book",
     "smoke-demo-order": "market_making.execution.smoke_demo_order",
     "validate-live": "market_making.validation.validate_live",

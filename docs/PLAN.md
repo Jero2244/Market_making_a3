@@ -1,5 +1,13 @@
 # RFX 20 market-making project
 
+> **Superseded roadmap, retained as history (2026-10-10).** The current objective
+> is the live Remarkets trading competition. Use the
+> [competition implementation plan](COMPETITION_PLAN.md) and
+> [problem review](COMPETITION_REVIEW.md). All futures are eligible, limits come
+> from the account, sessions follow the market, and mark-to-market uses real
+> prices. The milestones below describe previous research work and must not
+> override those competition requirements.
+
 Target environment: https://api.remarkets.primary.com.ar
 
 Reference: [Primary API v1.21](https://apihub.primary.com.ar/assets/docs/Primary-API.pdf).

@@ -9,6 +9,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from market_making.desktop.controller import MonitorController, WatchOptions, default_env_file
+from market_making.desktop.scenario_tab import ScenarioTab
 from market_making.ppi import monitor
 
 BG = "#f3f5f9"
@@ -124,6 +125,22 @@ class DesktopApp:
         self.env = tk.StringVar(value=str(default_env_file()))
         self.config = tk.StringVar()
         self.manual = tk.BooleanVar(value=False)
+        spot_inputs = ttk.Frame(checker)
+        spot_inputs.pack(fill="x", pady=(0, 12))
+        self.manual_spot_enabled = tk.BooleanVar(value=False)
+        self.manual_spot_value = tk.StringVar()
+        self.manual_spot_toggle = ttk.Checkbutton(spot_inputs, text="Manual GGAL spot (ARS/share)",
+                                                variable=self.manual_spot_enabled,
+                                                command=self.toggle_manual_spot)
+        self.manual_spot_toggle.pack(side="left")
+        self.manual_spot_entry = ttk.Entry(spot_inputs, textvariable=self.manual_spot_value,
+                                          width=12, state="disabled")
+        self.manual_spot_entry.pack(side="left", padx=8)
+        self.manual_spot_apply = ttk.Button(spot_inputs, text="Apply price", command=self.apply_manual_spot,
+                                           state="disabled")
+        self.manual_spot_apply.pack(side="left")
+        ttk.Label(spot_inputs, text="Reference price for yield; Apply updates the next refresh.",
+                  style="Muted.TLabel").pack(side="left", padx=12)
 
         self.cards = {}
         cards = ttk.Frame(checker)
@@ -169,6 +186,9 @@ class DesktopApp:
         ttk.Label(checker, textvariable=self.updated, style="Muted.TLabel").pack(anchor="w", pady=(8, 5))
         ttk.Label(checker, text="Gross yield excludes fees. Caucion is your manual input. Source freshness is unverified; no orders are sent.",
                   style="Muted.TLabel", wraplength=970).pack(anchor="w")
+        self.scenarios = ScenarioTab(self.tabs, env_variable=self.env, get_reports=lambda: self.reports,
+                                     caucion_variable=self.rate)
+        self.tabs.add(self.scenarios, text="Position scenarios")
 
     def options(self, demo=False):
         try:
@@ -179,9 +199,32 @@ class DesktopApp:
         options = WatchOptions(demo=demo, interval=interval, caucion_tna=rate,
                                env_file=Path(self.env.get()),
                                watch_config=Path(self.config.get()) if self.config.get() else None,
-                               manual_check=self.manual.get())
+                               manual_check=self.manual.get(), manual_spot=self.parse_manual_spot())
         options.validate()
         return options
+
+    def parse_manual_spot(self):
+        if not self.manual_spot_enabled.get():
+            return None
+        try:
+            return monitor.number(float(self.manual_spot_value.get().strip().replace(",", ".")))
+        except (ValueError, OverflowError):
+            raise ValueError("Enter a positive, finite GGAL spot price in ARS per share.") from None
+
+    def toggle_manual_spot(self):
+        state = "normal" if self.manual_spot_enabled.get() else "disabled"
+        self.manual_spot_entry.configure(state=state)
+        self.manual_spot_apply.configure(state=state)
+
+    def apply_manual_spot(self):
+        try:
+            price = self.parse_manual_spot()
+        except ValueError as exc:
+            messagebox.showinfo("Check spot price", str(exc), parent=self.root)
+            return
+        self.controller.set_manual_spot(price)
+        self.notice.set("Manual GGAL spot saved: " + fmt(price, " ARS/share") +
+                        (" / used on the next refresh" if self.controller.running else " / ready for the next check"))
 
     def start_live(self):
         self.start(False)
@@ -209,7 +252,8 @@ class DesktopApp:
         self.controller.start(options)
 
     def set_running(self, running):
-        for widget in (self.start_button, self.demo_button, self.settings_button, self.rate_entry, self.interval_entry):
+        for widget in (self.start_button, self.demo_button, self.settings_button, self.rate_entry, self.interval_entry,
+                       self.manual_spot_toggle):
             widget.configure(state="disabled" if running else "normal")
         self.stop_button.configure(state="normal" if running else "disabled")
 
@@ -250,6 +294,12 @@ class DesktopApp:
         self.cards["spot"]["subtitle"].set("Synthetic / ARS per share" if first["mode"] == "DEMO" else "PPI production / ARS per share")
         self.cards["spot"]["status"].set("Unavailable" if not spot else "Demo snapshot" if first["mode"] == "DEMO" else "Received / freshness unverified")
         self.cards["spot"]["yield"].set("Spot ask is used for cash carry")
+        if spot and spot["provider"] == "manual":
+            self.sources.set("Manual GGAL spot + " + ("synthetic demo futures" if first["mode"] == "DEMO" else
+                                                       "REMARKETS simulated futures / read-only price comparison"))
+            self.cards["spot"]["subtitle"].set("Manual reference / ARS per share")
+            self.cards["spot"]["status"].set("User input / spread and depth unknown")
+            self.cards["spot"]["yield"].set("Same reference price on both sides")
         summaries = []
         for expiry in monitor.TARGETS:
             report = by_expiry[expiry]
@@ -278,6 +328,7 @@ class DesktopApp:
                         "Prices received / source freshness unverified" + (" / manual check" if first["manual_check"] else ""))
 
     def poll(self):
+        self.scenarios.poll()
         try:
             while True:
                 kind, payload = self.controller.events.get_nowait()
@@ -380,12 +431,14 @@ class DesktopApp:
 
     def callback_error(self, *_):
         self.controller.stop()
+        self.scenarios.controller.cancel()
         self.stopping = True
         self.notice.set("Unable to display the last update. Restart the checker.")
 
     def close(self):
         self.closing = True
         self.controller.stop()
+        self.scenarios.close()
         self.root.after_cancel(self.poll_id)
         self.root.destroy()
 
@@ -400,6 +453,19 @@ def self_test(output):
         app.interval.set("1")
         assert app.options().interval == 1
         app.interval.set("5")
+        app.manual_spot_enabled.set(True)
+        app.toggle_manual_spot()
+        app.manual_spot_value.set("100,5")
+        assert app.options().manual_spot == 100.5
+        app.apply_manual_spot()
+        assert app.controller.get_manual_spot() == 100.5
+        app.render(monitor.demo_cycle(1, manual_spot=100.5))
+        assert app.cards["spot"]["subtitle"].get() == "Manual reference / ARS per share"
+        app.manual_spot_value.set("105")
+        app.apply_manual_spot()
+        assert app.controller.get_manual_spot() == 105
+        app.manual_spot_enabled.set(False)
+        app.toggle_manual_spot()
         for cycle in range(1, 5):
             app.render(monitor.demo_cycle(cycle))
             root.update()
@@ -409,6 +475,7 @@ def self_test(output):
         app.tabs.select(1)
         root.update()
         assert app.tabs.tab(1, "text") == "Market making"
+        scenario_widget_check(app)
         app.tabs.select(0)
         app.start_demo()
         deadline = time.monotonic() + 5
@@ -425,10 +492,123 @@ def self_test(output):
         assert app.state.get() == "Stopped"
         Path(output).write_text(json.dumps({"ok": True, "tk": tk.TkVersion, "demo_scenarios": 4,
                                            "start_stop": True, "live_minimum_seconds": 1,
-                                           "live_default_seconds": 5, "market_making_placeholder": True}), encoding="utf-8")
+                                           "live_default_seconds": 5, "market_making_placeholder": True,
+                                           "position_scenarios": True, "scenario_calendar": "XBUE",
+                                           "scenario_offline_pnl": True, "scenario_histogram": True,
+                                           "scenario_late_response_discarded": True,
+                                           "variable_horizon": True, "return_pdf": True,
+                                           "return_and_price_ranges": True, "assumed_future_tna": True,
+                                           "caucion_prefill": True, "scenario_pnl_probabilities": True}), encoding="utf-8")
     finally:
         app.close()
     return 0
+
+
+def scenario_widget_check(app):
+    """Deterministic widget acceptance; also verifies calendar imports in the exe."""
+    from datetime import date
+    from market_making.desktop.scenario_controller import SpotQuote
+    from market_making.scenarios.calendar import advance_sessions, sessions_between
+    from market_making.scenarios.history import normalize_history
+
+    app.tabs.select(2)
+    app.root.update()
+    assert app.tabs.tab(2, "text") == "Position scenarios"
+    tab = app.scenarios
+    assert tab.years.get() == "3"
+    assert tab.move.get() == "0"
+    assert str(tab.positions["2026-10"]["widgets"]["entry"].cget("state")) == "disabled"
+    tab.reference_date.set("2026-10-14")
+    tab.spot.set("100,0")
+    tab.move.set("5")
+    row = tab.positions["2026-10"]
+    row["contracts"].set("2")
+    row["entry"].set("100")
+    row["current"].set("110")
+    tab.recalculate()
+    assert tab.result is not None
+    assert abs(tab.result.total_from_today - 837.5) < 1e-7
+    assert len(tab.table.get_children()) == 3
+    app.rate.set("35,0")
+    assert tab.assumed_tna.get() == "35,0"
+    tab.recalculate()
+    assert tab.result.legs[0].projection_tna == 35
+    assert abs(tab.result.legs[0].implied_tna - 228.125) < 1e-7
+    assert abs(tab.result.legs[0].projected_future - 105 * (1 + .35 * 14 / 365)) < 1e-7
+    tab.assumed_tna.set("40")
+    app.rate.set("30")
+    assert tab.assumed_tna.get() == "40"
+    tab.use_caucion()
+    assert tab.assumed_tna.get() == "30"
+    tab.assumed_tna.set("nan")
+    tab.recalculate()
+    assert tab.result is None and not tab.table.get_children()
+    tab.assumed_tna.set("")
+    app.rate.set("15")
+    assert tab.assumed_tna.get() == ""
+    tab.recalculate()
+    assert abs(tab.result.total_from_today - 837.5) < 1e-7
+    app.rate.set("")
+    app.render(monitor.demo_cycle(1))
+    tab.copy_simulated()
+    assert tab.spot.get() == "100,0"
+    assert "Synthetic demo" in row["source"].get()
+    assert "2026-10-07" in row["source"].get()
+    row["current"].set("110")
+    assert "Manual" in row["source"].get()
+    assert tab.result is None
+    tab.move.set("-100")
+    tab.recalculate()
+    assert tab.result is None and not tab.table.get_children()
+    tab.move.set("5")
+    days = sessions_between(date(2026, 1, 1), date(2026, 3, 31))
+    tab.history = normalize_history([{"date": day.isoformat(), "price": 100 + index}
+                                    for index, day in enumerate(days)], days[0], days[-1],
+                                   completed_before=date(2026, 4, 1))
+    tab.refresh_frequency()
+    assert "2-trading-day periods" in tab.frequency.get()
+    assert tab.chart.find_withtag("target")
+    assert tab.chart.find_withtag("pdf")
+    assert tab.chart.find_withtag("range_area")
+    assert "smoothed estimate" in tab.range_result.get()
+    cached_history = tab.history
+    tab.horizon.set("5")
+    assert tab.history is cached_history
+    assert tab.horizon_sample.horizon == 5
+    assert len(tab.horizon_sample.returns) == len(days) - 5
+    tab.range_unit.set("Final price (ARS)")
+    assert abs(float(tab.range_lower.get()) - 95) < 1e-8
+    assert abs(float(tab.range_upper.get()) - 105) < 1e-8
+    assert "ARS" in tab.range_result.get()
+    tab.horizon.set("bad")
+    assert tab.density is None
+    tab.horizon.set("2")
+    assert tab.density is not None
+    assert "2-trading-day periods" in tab.frequency.get()
+    tab.range_lower.set("200")
+    tab.range_upper.set("100")
+    assert "lower bound" in tab.range_result.get()
+    tab.range_lower.set("95")
+    tab.range_upper.set("105")
+    assert "smoothed estimate" in tab.range_result.get()
+    tab.views.select(0)
+    tab.recalculate()
+    assert tab.result is not None
+    assert tab.pnl_scenario.get() == "Scenario P/L: +837.50 ARS"
+    assert tab.pnl_target_chance.get().endswith("%")
+    assert tab.pnl_profit_chance.get().endswith("%")
+    assert "Combined gross P/L from today" in tab.pnl_probability_note.get()
+    tab.views.select(1)
+    assert advance_sessions(date(2026, 11, 5)) == date(2026, 11, 11)
+    # Editing a manual spot cancels a pending quote before its queue delivery.
+    generation = tab.controller.generation
+    tab.pending_kind = "spot"
+    tab.spot.set("120")
+    tab.controller.events.put((generation, "spot", SpotQuote(999, None, datetime.now(timezone.utc)), None))
+    tab.poll()
+    assert tab.spot.get() == "120"
+    tab.years.set("1")
+    assert tab.history is None
 
 
 def main(argv=None):
@@ -436,7 +616,14 @@ def main(argv=None):
     parser.add_argument("--self-test", metavar="OUTPUT_JSON", help="Run offline widget checks and exit")
     args = parser.parse_args(argv)
     if args.self_test:
-        return self_test(args.self_test)
+        try:
+            return self_test(args.self_test)
+        except Exception as exc:
+            # Avoid a hidden modal crash dialog during offline executable checks.
+            import traceback
+            Path(args.self_test).write_text(json.dumps({"ok": False, "error": type(exc).__name__,
+                                                       "traceback": traceback.format_exc()}), encoding="utf-8")
+            return 1
     root = tk.Tk()
     DesktopApp(root)
     root.mainloop()

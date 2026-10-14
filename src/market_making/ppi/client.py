@@ -16,11 +16,13 @@ ALLOWLIST = {
     "MarketData/SearchInstrument": "GET",
     "MarketData/Book": "GET",
     "MarketData/Current": "GET",
+    "MarketData/Search": "GET",
 }
 PARAMETERS = {
     "MarketData/SearchInstrument": {"Ticker", "Name", "Market", "Type"},
     "MarketData/Book": {"Ticker", "Type", "Settlement"},
     "MarketData/Current": {"Ticker", "Type", "Settlement"},
+    "MarketData/Search": {"Ticker", "Type", "Settlement", "DateFrom", "DateTo"},
 }
 
 

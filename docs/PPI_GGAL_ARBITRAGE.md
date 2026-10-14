@@ -113,7 +113,10 @@ python -m market_making.ppi.cli assess --spot 100 --tna 30 --days 30 --basis 365
 ### Transport safeguards
 
 The transport permits only login/refresh-token POST and these GET reads:
-InstrumentTypes, Markets, Settlements, SearchInstrument, Book and Current.
+InstrumentTypes, Markets, Settlements, SearchInstrument, Book, Current and
+historical MarketData/Search. The latter is used by the desktop position-scenario
+tab for bounded annual GGAL daily-price reads; it does not add account or order
+access. See [the scenario guide](DESKTOP.md#position-scenarios).
 
 - The HTTPS production host is fixed.
 - Certificate validation is enabled.

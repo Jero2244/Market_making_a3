@@ -52,6 +52,34 @@ def primary_client():
 
 
 class QuoteOutputTests(unittest.TestCase):
+    def test_manual_spot_skips_ppi_and_changes_yield(self):
+        cfg = config()
+        cfg['quote_only'] = True
+        primary = primary_client()
+        primary.snapshot.side_effect = list(primary.snapshot.side_effect) * 2
+        with patch.object(monitor, 'Client', side_effect=AssertionError('PPI must be skipped')), \
+                patch.object(monitor, 'RemarketsClient', return_value=primary):
+            session = monitor.WatchSession(Mock(ready=False), Mock(ready=True))
+            try:
+                first = session.read(cfg, 1, manual_spot=100)
+                second = session.read(cfg, 2, manual_spot=105)
+            finally:
+                session.close()
+        self.assertGreater(first[0]['quote_summary']['implied_yield_tna'],
+                           second[0]['quote_summary']['implied_yield_tna'])
+        self.assertEqual(second[0]['books']['spot']['provider'], 'manual')
+        self.assertEqual(second[0]['books']['spot']['offers'][0]['price'], 105)
+        self.assertIsNone(second[0]['books']['spot']['source_timestamp'])
+        self.assertFalse(second[0]['executable'])
+
+    def test_manual_reference_does_not_claim_full_assessment_depth(self):
+        cfg = config()
+        report = monitor.evaluate(monitor.manual_spot_book(100), parse_book(raw_book(110, 111)),
+                                  cfg, cfg['futures'][0], now=NOW, manual_check=True)
+        self.assertIsNotNone(report['quote_summary']['implied_yield_tna'])
+        self.assertIn('manual_spot_reference_no_executable_spread_or_depth', report['blockers'])
+        self.assertEqual(report['status'], monitor.UNAVAILABLE)
+
     def report(self, cfg=None, future=None, spot=None):
         cfg = cfg or config()
         return monitor.evaluate(spot or parse_book(raw_book(), receipt=NOW),

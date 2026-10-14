@@ -95,6 +95,8 @@ def parse_snapshot(payload, received_at=None, requested_identity=None, received_
             if p <= 0 or q <= 0 or p % 100 or q % 1:
                 raise PrimaryError("Invalid/off-grid book price or size.")
             parsed.append((p, q))
+        if len({p for p, q in parsed}) != len(parsed):
+            raise PrimaryError("Duplicate book price levels have ambiguous quantities.")
         sides.append(tuple(sorted(parsed, reverse=side == "BI")))
     bids, asks = sides
     state = "missing" if not bids or not asks else "crossed" if asks[0][0] <= bids[0][0] else "two_sided"

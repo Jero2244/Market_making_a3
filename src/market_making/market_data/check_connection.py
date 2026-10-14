@@ -49,7 +49,7 @@ def request(session, method, path, **kwargs):
         raise PrimaryError("Operation is not on the read-only validation allowlist.")
     try:
         response = session.request(
-            method, BASE_URL + path, timeout=(10, 30),
+            method, BASE_URL + path, timeout=kwargs.pop("timeout", (10, 30)),
             allow_redirects=False, **kwargs
         )
     except requests.RequestException as exc:
@@ -78,8 +78,8 @@ def authenticate(session, username, password):
     session._primary_secrets.append(token)
 
 
-def get_json(session, path, **params):
-    response = request(session, "GET", path, params=params)
+def get_json(session, path, *, request_timeout=(10, 30), **params):
+    response = request(session, "GET", path, params=params, timeout=request_timeout)
     try:
         payload = response.json()
     except ValueError:

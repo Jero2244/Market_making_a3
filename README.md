@@ -1,5 +1,15 @@
 # RFX 20 · Market Making & GGAL Research
 
+**Competition target (2026-10-10):** Remarkets is the live execution environment
+for this bot's trading competition. All futures are eligible, limits are loaded
+in the account, trading follows the applicable market hours, and mark-to-market
+uses real-market prices rather than the Remarkets closing price. The current
+implementation is still the research/monitoring foundation described below.
+See the [problem review](docs/COMPETITION_REVIEW.md) and
+[competition implementation plan](docs/COMPETITION_PLAN.md) for the current
+priorities. Historical demo/production distinctions below describe data sources
+and previous work; real-money deployment is not a competition prerequisite.
+
 Python research tools for RFX 20 futures on **Primary REMARKETS**: discover
 contracts, record market data, inspect snapshots, and assess replay readiness.
 Separate GGAL carry research combines PPI production spot reads with REMARKETS
@@ -12,6 +22,13 @@ simulated futures, or runs entirely offline with synthetic inputs.
 ---
 
 ## Current status
+
+**Data receiver update (2026-10-13):** a complete REST snapshot path now supports
+catalogued futures, contract-specific grids, age checks and invalidation after
+failed refreshes. Streaming receipt handling and duplicate-level rejection were
+also repaired. See [receiver usage and validation](docs/DATA_RECEIVER.md).
+This supplies read-only/shadow observations; strategy and order integration remain
+unfinished. The bounded live check returned empty books for RFX20 and GGAL.
 
 Verified locally on **2026-10-09**: **249 offline tests** and source/packaged
 desktop widget checks passed. No credentialed refresh benchmark or order was
@@ -45,6 +62,13 @@ Live refresh defaults to **5 seconds** and accepts **1 second or longer**.
 Sessions are reused, independent provider reads overlap, and provider failures
 trigger backoff. These settings do not establish a broker/account rate allowance.
 The Market making tab is reserved for later development.
+The **Position scenarios** tab accepts your October/December GGAL futures
+positions and manual or PPI spot, estimates gross P/L for 1–252 trading days,
+and displays a historical return PDF with shaded percentage/price ranges and
+one-sided return comparisons. Futures P/L also shows the estimated chance of
+meeting the combined scenario P/L from today and of finishing profitable,
+using the same historical sample, horizon and TNA assumptions. Inputs remain
+in this session.
 See [GGAL Desk setup and build instructions](docs/DESKTOP.md).
 
 The executable and build environment are generated locally and are **not tracked
@@ -222,6 +246,7 @@ and relative `data/` paths.
 | `ppi-readonly` | Read-only PPI discovery, hypothetical carry scenarios, and GGAL demo/proxy monitoring |
 | `check-connection` | Discover contracts and fetch REST snapshots |
 | `stream-market-data` | Record read-only WebSocket market data |
+| `snapshot-market-data` | Receive complete validated futures snapshots for read-only/shadow use |
 | `view-order-book` | Inspect the exact `ROFX RFX20/OCT26` REST book |
 | `validate-live` | Run bounded read-only demo validation; requires `--live` for network access |
 | `collect-session-sources` | Fetch public reference and service-status pages |
@@ -263,6 +288,11 @@ allows an explicit override.
 
 ## Next steps
 
+The [competition implementation plan](docs/COMPETITION_PLAN.md) supersedes the
+sequencing below. It includes account limits, real-price valuation, recoverable
+execution and an integrated strategy. The older prerequisites remain historical
+context; their applicability must follow the competition specification.
+
 Work through the prerequisites **before moving toward automated trading**:
 
 1. **Resolve exchange freshness.** Obtain authoritative timestamp units, timezone,
@@ -298,6 +328,8 @@ feeds. The current desktop checker uses REST. See
 
 | Guide | What you will find |
 | --- | --- |
+| [Competition problem review](docs/COMPETITION_REVIEW.md) | Prioritized findings, source evidence and offline verification |
+| [Competition implementation plan](docs/COMPETITION_PLAN.md) | Resolution phases, dependencies and acceptance criteria for all findings |
 | [GGAL Desk](docs/DESKTOP.md) | GUI controls, credentials, portable use, Windows build and widget checks |
 | [Refresh performance](docs/REFRESH_PERFORMANCE.md) | Token lifetime sources, session reuse, scheduling/backoff and streaming options |
 | [Roadmap](docs/PLAN.md) | Project milestones and acceptance criteria |

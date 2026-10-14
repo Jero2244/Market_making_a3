@@ -99,6 +99,16 @@ class ClientTests(unittest.TestCase):
         self.assertEqual([x for x, method in ALLOWLIST.items() if method != 'GET'], ['Account/LoginApi', 'Account/RefreshToken'])
         self.assertFalse(any('Order' in x for x in ALLOWLIST))
 
+    def test_historical_route_has_only_documented_parameters(self):
+        self.session.request.side_effect = [response(token()), response([])]
+        self.client.login()
+        params = {'Ticker': 'GGAL', 'Type': 'ACCIONES', 'Settlement': 'INMEDIATA',
+                  'DateFrom': '2025-01-01', 'DateTo': '2025-12-31'}
+        self.assertEqual(self.client.get('MarketData/Search', params), [])
+        self.assertEqual(self.session.request.call_args.kwargs['params'], params)
+        with self.assertRaisesRegex(PPIError, 'forbidden_parameters'):
+            self.client.get('MarketData/Search', dict(params, AccountNumber='123'))
+
     def test_caucion_http400_each_stage_no_retry_and_response_closure(self):
         for endpoint, params in (
                 ('MarketData/SearchInstrument', {'Ticker': 'EXPLICIT-CAUCION', 'Type': 'CAUCIONES'}),

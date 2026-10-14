@@ -20,6 +20,9 @@ class DesktopControllerTests(unittest.TestCase):
         return events
 
     def test_input_validation(self):
+        for price in (0, -1, float('nan'), float('inf')):
+            with self.assertRaises(ValueError):
+                WatchOptions(manual_spot=price).validate()
         for options in (WatchOptions(interval=.5), WatchOptions(interval=float('nan')),
                         WatchOptions(caucion_tna=-1), WatchOptions(caucion_tna=float('inf')),
                         WatchOptions(watch_config=Path('local.json'), caucion_tna=30)):
@@ -29,6 +32,15 @@ class DesktopControllerTests(unittest.TestCase):
         WatchOptions(interval=1).validate()
         WatchOptions(demo=True, interval=1).validate()
         WatchOptions(caucion_tna=0).validate()
+
+    def test_manual_price_update_is_validated(self):
+        controller = MonitorController()
+        controller.set_manual_spot(100)
+        controller.set_manual_spot(105)
+        self.assertEqual(controller.get_manual_spot(), 105)
+        with self.assertRaises(ValueError):
+            controller.set_manual_spot(float('nan'))
+        self.assertEqual(controller.get_manual_spot(), 105)
 
     def test_demo_never_loads_credentials_or_network(self):
         controller = MonitorController()

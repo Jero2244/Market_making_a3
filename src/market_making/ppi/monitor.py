@@ -9,7 +9,7 @@ from datetime import datetime, timezone
 from .arbitrage import fair_future, finite, period_rate, price_diagnostics, MANUAL_FRESHNESS_CAVEAT
 from .client import Client, PPIError
 from .config import load_credentials
-from .models import Book, number, parse_book, timestamp
+from .models import Book, Level, number, parse_book, timestamp
 from .monitor_config import TARGETS, SYMBOLS, load_watch_config, default_watch_config
 from .remarkets import Client as RemarketsClient, load_credentials as load_primary_credentials, parse_snapshot
 
@@ -19,6 +19,14 @@ UNAVAILABLE = "NO EVALUABLE"
 UNVERIFIED = "source_timestamp_scope_clock_and_session_unverified"
 TRANSIENT_FAILURES = frozenset(("http_failure_429", "http_failure_500", "http_failure_502",
                                 "http_failure_503", "http_failure_504", "transport_or_json_failure"))
+
+
+def manual_spot_book(price):
+    """A user reference price supplies neither an executable spread nor depth."""
+    level = Level(number(price), 0)
+    return Book(level, level, None, None, None, datetime.now(timezone.utc),
+                ["source_timestamp_missing_or_ambiguous"], bids=(level,), offers=(level,),
+                identity_basis="manual_reference_price")
 
 
 def quote_summary(spot, future, config, contract, now):
@@ -35,7 +43,7 @@ def quote_summary(spot, future, config, contract, now):
         if any(price_diagnostics(book.blockers, True)[0] for book in (spot, future)):
             return summary
         for book in (spot, future):
-            if number(book.bid.price) >= number(book.ask.price):
+            if book.identity_basis != "manual_reference_price" and number(book.bid.price) >= number(book.ask.price):
                 return summary
         days = number((timestamp(contract["maturity"]) - now).total_seconds() / 86400)
         basis = config["rates"]["basis"]
@@ -114,6 +122,11 @@ def evaluate(spot, future, config, contract, *, now, cycle=1, mode="LIVE-PROXY",
                               provider="synthetic" if mode == "DEMO" else "remarkets",
                                environment="synthetic" if mode == "DEMO" else "REMARKETS simulated",
                                now=now, max_age=config.get("max_age_seconds", 30))}
+    manual_spot = spot.identity_basis == "manual_reference_price"
+    if manual_spot:
+        result["provenance"]["spot"] = "Manual GGAL reference price"
+        result["books"]["spot"].update(provider="manual", environment="user_input", simulated=False)
+        result["caveats"].append("manual_spot_reference_no_executable_spread_or_depth")
     for field, attribute in (("source_skew_seconds", "source_time"), ("receipt_skew_seconds", "receipt_time")):
         times = [getattr(book, attribute) for book in (spot, future)]
         if all(t is not None and t.tzinfo is not None for t in times):
@@ -131,6 +144,9 @@ def evaluate(spot, future, config, contract, *, now, cycle=1, mode="LIVE-PROXY",
         if result["quote_summary"]["implied_yield_tna"] is None and not result["blockers"]:
             result["blockers"].append("price_yield_unavailable")
         result["status"] = UNAVAILABLE if result["blockers"] else "PRICE CHECK"
+        return result
+    if manual_spot:
+        result["blockers"].append("manual_spot_reference_no_executable_spread_or_depth")
         return result
     blockers = result["blockers"]
     try:
@@ -198,7 +214,7 @@ def evaluate(spot, future, config, contract, *, now, cycle=1, mode="LIVE-PROXY",
     return result
 
 
-def demo_cycle(cycle, *, manual_check=False):
+def demo_cycle(cycle, *, manual_check=False, manual_spot=None):
     """Repeat four deterministic scenarios; never load credentials or network."""
     now = datetime(2026, 10, 7, 12, tzinfo=timezone.utc)
     scenario = (cycle - 1) % 4
@@ -228,7 +244,10 @@ def demo_cycle(cycle, *, manual_check=False):
             future = book(lower - 6, lower - 5)
         else:
             future = parse_book({}, receipt=now)
-        report = evaluate(spot, future, config, contract, now=now, cycle=cycle, mode="DEMO", manual_check=manual_check)
+        if manual_spot is not None:
+            config["quote_only"] = True
+        report = evaluate(manual_spot_book(manual_spot) if manual_spot is not None else spot,
+                          future, config, contract, now=now, cycle=cycle, mode="DEMO", manual_check=manual_check)
         report["scenario"] = ("no_edge", "cash_carry", "reverse", "unavailable")[scenario]
         reports.append(report)
     return reports
@@ -338,11 +357,11 @@ class WatchSession:
             client.renew_authentication()
             return read()  # One retry only; 403, bad credentials and unknown errors stop.
 
-    def read(self, config, cycle, manual_check=False):
+    def read(self, config, cycle, manual_check=False, manual_spot=None):
         self._check_cancelled()
-        if not self.credentials.ready or not self.primary_credentials.ready:
+        if (manual_spot is None and not self.credentials.ready) or not self.primary_credentials.ready:
             raise PPIError("credentials_unavailable")
-        if self.client is None:
+        if manual_spot is None and self.client is None:
             self.client = Client(self.credentials, live=True, max_requests=2)
         if self.primary is None:
             self.primary = RemarketsClient(self.primary_credentials, live=True, max_requests=3)
@@ -352,6 +371,8 @@ class WatchSession:
 
         def spot_read():
             self._check_cancelled()
+            if manual_spot is not None:
+                return manual_spot_book(manual_spot)
             self.client.begin_watch_cycle()
             self.client.ensure_authenticated()
             params = {key.capitalize(): config["spot"][key] for key in ("ticker", "type", "settlement")}
@@ -421,10 +442,18 @@ def refresh_delay(reports, interval, failures):
     return delay, failures
 
 
-def live_cycle(config, credentials, cycle, *, primary_credentials, manual_check=False, session=None):
+def live_cycle(config, credentials, cycle, *, primary_credentials, manual_check=False, session=None, manual_spot=None):
     """One PPI spot and two REMARKETS futures, with no fallback."""
     if session is not None:
+        if manual_spot is not None:
+            return session.read(config, cycle, manual_check, manual_spot=manual_spot)
         return session.read(config, cycle, manual_check)
+    if manual_spot is not None:
+        with_session = WatchSession(credentials, primary_credentials)
+        try:
+            return with_session.read(config, cycle, manual_check, manual_spot=manual_spot)
+        finally:
+            with_session.close()
     if not credentials.ready or not primary_credentials.ready:
         raise PPIError("credentials_unavailable")
     client = primary = None

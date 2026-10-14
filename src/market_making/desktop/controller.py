@@ -32,8 +32,11 @@ class WatchOptions:
     env_file: Path | None = None
     watch_config: Path | None = None
     manual_check: bool = False
+    manual_spot: float | None = None
 
     def validate(self):
+        if self.manual_spot is not None:
+            monitor.number(self.manual_spot)
         if not math.isfinite(self.interval) or not 1 <= self.interval <= 86400:
             raise ValueError("Use a refresh interval between 1 and 86400 seconds.")
         if self.caucion_tna is not None and (not math.isfinite(self.caucion_tna) or self.caucion_tna < 0):
@@ -50,6 +53,18 @@ class MonitorController:
         self._stop = threading.Event()
         self._thread = None
         self._session = None
+        self._manual_spot = None
+        self._price_lock = threading.Lock()
+
+    def set_manual_spot(self, price):
+        if price is not None:
+            monitor.number(price)
+        with self._price_lock:
+            self._manual_spot = price
+
+    def get_manual_spot(self):
+        with self._price_lock:
+            return self._manual_spot
 
     @property
     def running(self):
@@ -59,6 +74,7 @@ class MonitorController:
         options.validate()
         if self.running:
             return False
+        self.set_manual_spot(options.manual_spot)
         self._stop = threading.Event()
         self._thread = threading.Thread(target=self._run, args=(options,), daemon=True,
                                         name="ggal-readonly-monitor")
@@ -92,7 +108,7 @@ class MonitorController:
                 env_file = options.env_file or default_env_file()
                 credentials = monitor.load_credentials(env_file)
                 primary = monitor.load_primary_credentials(env_file)
-                if not credentials.ready or not primary.ready:
+                if (options.manual_spot is None and not credentials.ready) or not primary.ready:
                     self.events.put(("reports", failed("credentials_unavailable")))
                     return
                 session = monitor.WatchSession(credentials, primary)
@@ -104,9 +120,11 @@ class MonitorController:
                 self.events.put(("status", "Checking prices..."))
                 stop_on_error = False
                 try:
-                    reports = (monitor.demo_cycle(cycle, manual_check=options.manual_check) if options.demo else
+                    reports = (monitor.demo_cycle(cycle, manual_check=options.manual_check,
+                                                  manual_spot=self.get_manual_spot()) if options.demo else
                                monitor.live_cycle(config, credentials, cycle, primary_credentials=primary,
-                                                  manual_check=options.manual_check, session=session))
+                                                  manual_check=options.manual_check, session=session,
+                                                  manual_spot=self.get_manual_spot()))
                 except monitor.PPIError as exc:
                     code = str(exc)
                     auth = code in {"http_failure_401", "http_failure_403", "credentials_unavailable",

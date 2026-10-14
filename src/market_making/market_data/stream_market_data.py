@@ -1,4 +1,4 @@
-"""Read-only REMARKETS RFX 20 market-data recorder (no order API)."""
+"""Read-only REMARKETS futures market-data recorder (no order API)."""
 
 import argparse
 from datetime import datetime, timezone
@@ -13,7 +13,9 @@ import requests
 import websocket
 
 from market_making.market_data.check_connection import (PrimaryError, authenticate, get_json,
-                              instrument_id, load_dotenv, normalize, require_field, safe_payload)
+                              instrument_id, load_dotenv, require_field, safe_payload)
+from market_making.market_data.reference_clock import (RenewingReferenceClock, calibrate,
+                                                       diagnose_timestamp)
 
 
 WS_URL = "wss://api.remarkets.primary.com.ar/"
@@ -44,12 +46,12 @@ def server_timestamps(value, path="", depth=0):
 
 
 def validate_symbol(instruments, market_id, symbol):
-    """Require an exact catalog match AND a future in the RFX 20 family."""
+    """Require an exact, unique catalog match classified as a future."""
     if not isinstance(instruments, list) or not all(isinstance(i, dict) for i in instruments):
         raise PrimaryError("Unexpected instrument catalog format.")
     matches = [i for i in instruments if instrument_id(i) == (market_id, symbol)]
-    if len(matches) != 1 or "RFX20" not in normalize(symbol):
-        raise PrimaryError("Exact RFX 20 symbol/market pair not uniquely found in catalog.")
+    if len(matches) != 1:
+        raise PrimaryError("Exact futures symbol/market pair not uniquely found in catalog.")
     if not str(matches[0].get("cficode", "")).upper().startswith("F"):
         raise PrimaryError("Selected instrument is not catalogued as a future (CFI F...).")
 
@@ -115,18 +117,31 @@ class Recorder:
     def __init__(self, output):
         # Exclusive create: never append to or overwrite a previous session.
         self.file = output.open("x", encoding="utf-8")
+        self.writes = 0
+        self.storage_seconds = 0.0
+        self.max_write_seconds = 0.0
 
     def write(self, event):
+        started = time.monotonic()
         try:
             self.file.write(json.dumps(event, ensure_ascii=True, separators=(",", ":")) + "\n")
             self.file.flush()
             os.fsync(self.file.fileno())
+            elapsed = time.monotonic() - started
+            self.writes += 1
+            self.storage_seconds += elapsed
+            self.max_write_seconds = max(self.max_write_seconds, elapsed)
         except (OSError, ValueError) as exc:
             # Distinct from transport OSError: never retry a failed recording.
             raise PrimaryError("Recording write failed; session stopped.") from None
 
     def close(self):
         self.file.close()
+
+    def metrics(self):
+        return {"completed_writes": self.writes, "storage_seconds": self.storage_seconds,
+                "max_write_seconds": self.max_write_seconds,
+                "mode": "synchronous_flush_fsync"}
 
 
 def auth_rejected(message):
@@ -173,10 +188,13 @@ def parse_market_frame(raw, secrets=()):
         duplicate_keys |= len(dict(items)) != len(items)
         return dict(items)
 
+    def invalid_constant(value):
+        raise ValueError("Nonfinite JSON constant")
+
     try:
         text = raw.decode("utf-8") if isinstance(raw, bytes) else raw
-        message = json.loads(text, object_pairs_hook=pairs)
-    except (ValueError, TypeError, RecursionError):
+        message = json.loads(text, object_pairs_hook=pairs, parse_constant=invalid_constant)
+    except (ValueError, TypeError, RecursionError, UnicodeError):
         return None, False
     retained = (isinstance(message, dict) and message.get("type") == "Md"
                 and isinstance(message.get("instrumentId"), dict)
@@ -222,7 +240,8 @@ def connect(token, timeout):
 
 def run(symbol, market_id, output, username, password, *, duration=300, stale_after=20,
         reconnects=5, refresh_after=23 * 3600, interval=5, connect_fn=connect,
-        clock=time.monotonic, sleep=time.sleep, shared_secrets=None):
+        clock=time.monotonic, sleep=time.sleep, shared_secrets=None,
+        reference_clock=None, wall_clock=time.time):
     if (any(not math.isfinite(value) or value <= 0
             for value in (duration, stale_after, refresh_after, interval))
             or reconnects < 0):
@@ -244,11 +263,16 @@ def run(symbol, market_id, output, username, password, *, duration=300, stale_af
         started = clock()
         deadline = started + duration
         attempts = 0
+        generation = 0
+        sequence = 0
         try:
             recorder.write({"event": "session", "received_at_utc": utc_now(),
                              "marketId": market_id, "symbol": symbol, "entries": list(ENTRIES),
                              "duration_seconds": duration,
                             "note": "Raw Md frames; book update semantics unverified"})
+            if reference_clock is not None:
+                recorder.write({"event": "clock_calibration", "received_at_utc": utc_now(),
+                                "clock": reference_clock.reading(clock(), wall_clock())})
             while clock() < deadline:
                 if clock() - issued_at >= refresh_after:
                     authenticate(session, username, password)
@@ -261,7 +285,9 @@ def run(symbol, market_id, output, username, password, *, duration=300, stale_af
                     ws = connect_fn(token, min(5, max(0.001, deadline - clock())))
                     ws.settimeout(min(1.0, interval, max(0.001, deadline - clock())))
                     freshness.reset()
-                    recorder.write({"event": "connected", "received_at_utc": utc_now()})
+                    generation += 1
+                    recorder.write({"event": "connected", "received_at_utc": utc_now(),
+                                    "generation": generation})
                     ws.send(json.dumps({"type": "smd", "level": 1, "entries": list(ENTRIES),
                                         "products": [{"symbol": symbol, "marketId": market_id}],
                                         "depth": 2}))
@@ -301,8 +327,11 @@ def run(symbol, market_id, output, username, password, *, duration=300, stale_af
                             continue
                         if opcode != websocket.ABNF.OPCODE_TEXT:
                             continue
-                        raw = frame.decode("utf-8") if isinstance(frame, bytes) else frame
-                        message, retained = parse_market_frame(raw, secrets)
+                        received_wall = wall_clock()
+                        received_at = datetime.fromtimestamp(received_wall, timezone.utc).isoformat()
+                        sequence += 1
+                        message, retained = parse_market_frame(frame, secrets)
+                        raw = frame.decode("utf-8") if retained and isinstance(frame, bytes) else frame
                         # Terminal errors are metadata only, never retained as Md
                         # and never observed by freshness or recovery evidence.
                         if auth_rejected(message):
@@ -312,7 +341,12 @@ def run(symbol, market_id, output, username, password, *, duration=300, stale_af
                             recorder.write({"event": "subscription_rejected", "received_at_utc": utc_now()})
                             raise PrimaryError("WebSocket subscription/server rejected request; stopping.")
                         if retained:
-                            recorder.write({"event": "message", "received_at_utc": utc_now(),
+                            freshness.observe(message, now, market_id, symbol)
+                            recorder.write({"event": "message", "received_at_utc": received_at,
+                                            "received_monotonic": now, "generation": generation,
+                                            "sequence": sequence,
+                                            "timestamp_diagnostics": diagnose_timestamp(
+                                                message, received_wall, now, reference_clock),
                                             "server_timestamps": server_timestamps(message),
                                             "raw": raw})
                         else:
@@ -321,7 +355,7 @@ def run(symbol, market_id, output, username, password, *, duration=300, stale_af
                             # JSON escaping. Never persist their raw content or paths.
                             recorder.write({"event": "control_message", "received_at_utc": utc_now(),
                                             "note": "Payload withheld for security"})
-                        freshness.observe(message if retained else None, now, market_id, symbol)
+                        # Invalid frames are not evidence of healthy transport or data.
                         if not observed and freshness.instrument == now:
                             observed = True
                             recorder.write({"event": "selected_instrument_observed",
@@ -360,6 +394,7 @@ def run(symbol, market_id, output, username, password, *, duration=300, stale_af
                              "reason": "duration_deadline", "duration_seconds": duration,
                              "elapsed_seconds": clock() - started,
                              "deadline_reached": clock() >= deadline,
+                             "recording_metrics_before_end": recorder.metrics(),
                              "status": freshness.snapshot(clock())})
         finally:
             recorder.close()
@@ -367,7 +402,7 @@ def run(symbol, market_id, output, username, password, *, duration=300, stale_af
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--symbol", required=True, help="Exact RFX 20 future symbol from catalog")
+    parser.add_argument("--symbol", required=True, help="Exact future symbol from catalog")
     parser.add_argument("--market-id", default="ROFX")
     parser.add_argument("--output", type=Path, required=True, help="NEW JSONL path")
     parser.add_argument("--duration", type=float, default=300, help="Session seconds (default: 300)")
@@ -377,16 +412,21 @@ def main(argv=None):
     parser.add_argument("--interval", type=float, default=5, help="Heartbeat/status seconds")
     parser.add_argument("--env-file", type=Path, default=Path(".env"))
     parser.add_argument("--no-env", action="store_true")
+    parser.add_argument("--clock-check", action="store_true",
+                        help="Measure UTC against two time servers; record timestamp diagnostics")
     args = parser.parse_args(argv)
     if not args.no_env:
         load_dotenv(args.env_file)
     username, password = os.getenv("PRIMARY_USER", ""), os.getenv("PRIMARY_PASSWORD", "")
     if not username or not password:
         parser.error("Set PRIMARY_USER and PRIMARY_PASSWORD in environment or dotenv file.")
+    reference = None
     try:
+        reference = RenewingReferenceClock(calibrate()).start() if args.clock_check else None
         run(args.symbol, args.market_id, args.output, username, password,
             duration=args.duration, stale_after=args.stale_after,
-            reconnects=args.reconnects, refresh_after=args.refresh_after, interval=args.interval)
+            reconnects=args.reconnects, refresh_after=args.refresh_after, interval=args.interval,
+            reference_clock=reference)
         print("Recording finished (new JSONL output).")
         return 0
     except KeyboardInterrupt:
@@ -396,6 +436,9 @@ def main(argv=None):
         # Network/API errors are sanitized by our wrappers; avoid dumping paths or payloads.
         print(f"Recording stopped: {type(exc).__name__}", file=sys.stderr)
         return 1
+    finally:
+        if reference is not None:
+            reference.close()
 
 
 if __name__ == "__main__":
