@@ -6,6 +6,7 @@ from queue import Empty
 import tkinter as tk
 from tkinter import ttk
 
+from market_making.contracts import CONTRACTS, CONTRACT_SHARES, DAY_BASIS
 from market_making.scenarios.calendar import BA, today, validate_horizon, advance_sessions
 from market_making.scenarios.calculation import (
     DEFAULT_EXPIRIES, Position, calculate, simulated_midpoints, validate_move, finite,
@@ -77,7 +78,7 @@ class ScenarioTab(ttk.Frame):
 
     def _layout(self, body):
         ttk.Label(body, text="Position scenarios", style="CardTitle.TLabel").pack(anchor="w")
-        ttk.Label(body, text="Choose a trading-day horizon / 100 shares per contract / ARS per share",
+        ttk.Label(body, text=f"Manual positions / {CONTRACT_SHARES} shares per contract / ARS per share",
                   style="Muted.TLabel").pack(anchor="w", pady=(2, 8))
         controls = ttk.Frame(body)
         controls.pack(fill="x", pady=(0, 4))
@@ -145,7 +146,7 @@ class ScenarioTab(ttk.Frame):
                       "maturity": tk.StringVar(value=maturity.isoformat()),
                       "source": tk.StringVar(value="Manual futures price")}
             self.positions[expiry] = values
-            ttk.Label(rows, text="October 2026" if expiry == "2026-10" else "December 2026").grid(
+            ttk.Label(rows, text=CONTRACTS[expiry].label).grid(
                 row=row, column=0, sticky="w", padx=4, pady=4)
             widgets = {}
             for column, key in enumerate(("direction", "contracts", "entry", "current", "maturity"), 1):
@@ -193,7 +194,7 @@ class ScenarioTab(ttk.Frame):
             self.table.heading(key, text=label)
             self.table.column(key, width=width, minwidth=70, anchor="w" if key in ("expiry", "status") else "e")
         self.table.pack(fill="x")
-        ttk.Label(positions_body, text="Projected future = projected spot x (1 + projection TNA / 100 x remaining calendar days / 365). "
+        ttk.Label(positions_body, text=f"Projected future = projected spot x (1 + projection TNA / 100 x remaining calendar days / {DAY_BASIS}). "
                             "An assumed TNA models repricing to that rate by the scenario date. "
                             "Before commissions, spread, taxes and margin financing. Since-entry P/L includes differences already settled.",
                   style="Muted.TLabel", wraplength=920).pack(anchor="w", pady=(5, 8))
@@ -265,7 +266,7 @@ class ScenarioTab(ttk.Frame):
 
     def _future_edited(self, expiry):
         if not self._programmatic:
-            self.positions[expiry]["source"].set(("October" if expiry == "2026-10" else "December") + " / Manual futures price")
+            self.positions[expiry]["source"].set(CONTRACTS[expiry].month_label + " / Manual futures price")
         self._inputs_changed()
 
     def _spot_edited(self, *_):
@@ -446,7 +447,7 @@ class ScenarioTab(ttk.Frame):
                          f"projected spot {money(result.projected_spot)} ARS / "
                          + ("using current implied TNAs" if assumption is None else f"assumed future TNA {assumption:g}%"))
         for leg in result.legs:
-            self.table.insert("", "end", values=("October" if leg.expiry == "2026-10" else "December",
+            self.table.insert("", "end", values=(CONTRACTS[leg.expiry].month_label,
                                                    money(leg.implied_tna) + ("%" if leg.implied_tna is not None else ""),
                                                    money(leg.projection_tna) + ("%" if leg.projection_tna is not None else ""),
                                                    money(leg.projected_future), money(leg.from_today, signed=True),
@@ -467,7 +468,7 @@ class ScenarioTab(ttk.Frame):
             for expiry, price in prices.items():
                 row = self.positions[expiry]
                 row["current"].set(format(price.price, ".12g"))
-                row["source"].set(("October" if expiry == "2026-10" else "December") +
+                row["source"].set(CONTRACTS[expiry].month_label +
                                    f" / {price.source} midpoint / received {price.receipt_timestamp or 'time unknown'}")
         finally:
             self._programmatic = False

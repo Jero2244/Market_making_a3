@@ -6,6 +6,7 @@ from contextlib import redirect_stdout, redirect_stderr
 from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
+from market_making.contracts import CONTRACTS, CONTRACT_SHARES, DEFAULT_EXPIRIES, SYMBOLS
 from market_making.ppi import cli, monitor, monitor_config
 from market_making.ppi.models import parse_book, timestamp
 
@@ -18,15 +19,23 @@ def book(bid, ask):
 
 
 class QuoteDefaultsTests(unittest.TestCase):
-    def test_last_weekday_rule_and_local_end_of_day(self):
-        for expiry, day in (('2026-10', 30), ('2026-12', 31), ('2026-02', 27),
-                            ('2026-01', 30), ('2028-02', 29)):
+    def test_monitor_and_positions_share_contract_defaults(self):
+        cfg = monitor_config.default_watch_config()
+        for instrument in cfg['futures']:
+            expiry = instrument['expiry']
             with self.subTest(expiry=expiry):
-                value = timestamp(monitor_config.last_weekday_maturity(expiry))
-                self.assertEqual(value.day, day)
-                self.assertLess(value.weekday(), 5)
+                value = timestamp(instrument['maturity'])
+                self.assertEqual(value.date(), DEFAULT_EXPIRIES[expiry])
+                self.assertEqual(value, CONTRACTS[expiry].maturity)
+                self.assertEqual(instrument['symbol'], SYMBOLS[expiry])
+                self.assertEqual(instrument['multiplier'], CONTRACT_SHARES)
                 self.assertEqual((value.hour, value.minute, value.second), (23, 59, 59))
                 self.assertEqual(value.utcoffset().total_seconds(), -10800)
+
+    def test_demo_uses_the_same_contract_dates(self):
+        for report in monitor.demo_cycle(1):
+            remaining = CONTRACTS[report['expiry']].maturity - timestamp(report['as_of'])
+            self.assertAlmostEqual(report['days_to_maturity'], remaining.total_seconds() / 86400)
 
     def test_quotes_and_yield_need_no_caucion_costs_or_contract_size(self):
         cfg = monitor_config.default_watch_config()

@@ -8,6 +8,7 @@ import time
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+from market_making.contracts import CONTRACTS, DAY_BASIS
 from market_making.desktop.controller import MonitorController, WatchOptions, default_env_file
 from market_making.desktop.scenario_tab import ScenarioTab
 from market_making.ppi import monitor
@@ -87,17 +88,11 @@ class DesktopApp:
         header = ttk.Frame(page)
         header.pack(fill="x", pady=(0, 10))
         ttk.Label(header, text="GGAL Desk", style="Title.TLabel").pack(side="left")
-        ttk.Label(header, text="Prices / carry / market making", style="Muted.TLabel").pack(side="right", pady=12)
+        ttk.Label(header, text="Futures prices / carry / position scenarios", style="Muted.TLabel").pack(side="right", pady=12)
         self.tabs = ttk.Notebook(page)
         self.tabs.pack(fill="both", expand=True)
         checker = ttk.Frame(self.tabs, padding=(16, 14))
-        placeholder = ttk.Frame(self.tabs, padding=40)
         self.tabs.add(checker, text="GGAL arbitrage")
-        self.tabs.add(placeholder, text="Market making")
-        ttk.Label(placeholder, text="Market-making bot", style="Title.TLabel").pack(anchor="w", pady=(40, 12))
-        ttk.Label(placeholder, text="Coming later", font=("Segoe UI", 15), foreground=BLUE).pack(anchor="w")
-        ttk.Label(placeholder, text="This area is reserved for the general bot and its controls.",
-                  style="Muted.TLabel").pack(anchor="w", pady=15)
 
         actions = ttk.Frame(checker)
         actions.pack(fill="x")
@@ -145,14 +140,15 @@ class DesktopApp:
         self.cards = {}
         cards = ttk.Frame(checker)
         cards.pack(fill="x")
-        for column, (key, title, subtitle) in enumerate([
+        card_specs = [
             ("spot", "GGAL spot", "PPI / ARS per share"),
-            ("2026-10", "October 2026", "GGAL/OCT26 / simulated futures"),
-            ("2026-12", "December 2026", "GGAL/DIC26 / simulated futures"),
-        ]):
+            *((expiry, contract.label, contract.symbol + " / simulated futures")
+              for expiry, contract in CONTRACTS.items()),
+        ]
+        for column, (key, title, subtitle) in enumerate(card_specs):
             cards.columnconfigure(column, weight=1, uniform="cards")
             card = ttk.Frame(cards, padding=14, style="Card.TFrame")
-            card.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else 6, 0 if column == 2 else 6))
+            card.grid(row=0, column=column, sticky="nsew", padx=(0 if column == 0 else 6, 0 if column == len(card_specs) - 1 else 6))
             ttk.Label(card, text=title, style="CardTitle.TLabel").pack(anchor="w")
             self.cards[key] = fields = {}
             fields["subtitle"] = tk.StringVar(value=subtitle)
@@ -319,7 +315,7 @@ class DesktopApp:
                 edge = report["directions"].get(direction, {}).get("net_edge")
                 summaries.append(expiry + ": " + (direction or "unavailable") + " / net " + fmt(edge, " ARS/share", True))
         if first.get("quote_only"):
-            self.assessment.set("Gross cash-carry yield / assumed month-end weekday maturity / 365-day basis / fees excluded")
+            self.assessment.set(f"Gross cash-carry yield / shared assumed expiry dates / {DAY_BASIS}-day basis / fees excluded")
         else:
             self.assessment.set(("Synthetic assessment / " if first["mode"] == "DEMO" else "Full assessment / ") + "   |   ".join(summaries))
         blockers = list(dict.fromkeys(reason for report in reports for reason in report["blockers"]))
@@ -472,9 +468,13 @@ def self_test(output):
             assert len(app.reports) == 2
             assert app.cards["2026-10"]["status"].get() == LABELS[monitor.demo_cycle(cycle)[0]["status"]]
         assert app.cards["2026-10"]["bid"].get() == "--"
-        app.tabs.select(1)
+        assert len(app.tabs.tabs()) == 2
+        assert app.tabs.tab(0, "text") == "GGAL arbitrage"
+        app.tabs.select(app.scenarios)
         root.update()
-        assert app.tabs.tab(1, "text") == "Market making"
+        assert app.tabs.tab(app.scenarios, "text") == "Position scenarios"
+        for expiry, contract in CONTRACTS.items():
+            assert app.scenarios.positions[expiry]["maturity"].get() == contract.maturity.date().isoformat()
         scenario_widget_check(app)
         app.tabs.select(0)
         app.start_demo()
@@ -492,7 +492,8 @@ def self_test(output):
         assert app.state.get() == "Stopped"
         Path(output).write_text(json.dumps({"ok": True, "tk": tk.TkVersion, "demo_scenarios": 4,
                                            "start_stop": True, "live_minimum_seconds": 1,
-                                           "live_default_seconds": 5, "market_making_placeholder": True,
+                                           "live_default_seconds": 5, "futures_helper_tabs": 2,
+                                           "shared_contract_defaults": True,
                                            "position_scenarios": True, "scenario_calendar": "XBUE",
                                            "scenario_offline_pnl": True, "scenario_histogram": True,
                                            "scenario_late_response_discarded": True,
@@ -511,9 +512,9 @@ def scenario_widget_check(app):
     from market_making.scenarios.calendar import advance_sessions, sessions_between
     from market_making.scenarios.history import normalize_history
 
-    app.tabs.select(2)
+    app.tabs.select(app.scenarios)
     app.root.update()
-    assert app.tabs.tab(2, "text") == "Position scenarios"
+    assert app.tabs.tab(app.scenarios, "text") == "Position scenarios"
     tab = app.scenarios
     assert tab.years.get() == "3"
     assert tab.move.get() == "0"

@@ -1,1 +1,1 @@
-"""Offline GGAL position scenarios and historical two-session frequencies."""
+"""GGAL position scenarios and historical returns across trading-day horizons."""

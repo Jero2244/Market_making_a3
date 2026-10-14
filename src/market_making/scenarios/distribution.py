@@ -7,7 +7,8 @@ from dataclasses import dataclass
 import math
 import statistics
 
-from .calculation import CONTRACT_SHARES, finite
+from market_making.contracts import CONTRACT_SHARES
+from .calculation import finite
 from .history import MIN_WINDOWS
 
 RANGE_COMPARISONS = ("From X to Y", "More than X", "Less than X", ">= X", "<= X")

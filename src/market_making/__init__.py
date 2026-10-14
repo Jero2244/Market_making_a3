@@ -1,1 +1,1 @@
-"""Primary REMARKETS market-making research tools."""
+"""GGAL Desk: read-only futures comparisons and manual position scenarios."""

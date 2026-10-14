@@ -5,6 +5,7 @@ import time
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+from market_making.contracts import CONTRACTS, DAY_BASIS
 
 from .arbitrage import fair_future, finite, period_rate, price_diagnostics, MANUAL_FRESHNESS_CAVEAT
 from .client import Client, PPIError
@@ -133,7 +134,7 @@ def evaluate(spot, future, config, contract, *, now, cycle=1, mode="LIVE-PROXY",
             result["timing"][field] = finite(abs((times[0] - times[1]).total_seconds()))
     if config.get("quote_only"):
         result["quote_only"] = True
-        result["assumptions"] = {"maturity": contract["maturity"], "maturity_rule": "last_weekday_month_end_Buenos_Aires",
+        result["assumptions"] = {"maturity": contract["maturity"], "maturity_rule": "shared_user_assumed_contract_settings",
                                  "price_unit": "ARS", "price_scale": 1, "basis": config["rates"]["basis"]}
         result["timing"]["policy"] = "advisory_price_comparison"
         result["caveats"].append("user_assumed_maturity_and_peso_units")
@@ -219,7 +220,7 @@ def demo_cycle(cycle, *, manual_check=False, manual_spot=None):
     now = datetime(2026, 10, 7, 12, tzinfo=timezone.utc)
     scenario = (cycle - 1) % 4
     config = {"contracts": 1, "threshold": 0, "max_age_seconds": 30,
-              "rates": {"borrow_tna": 36, "lend_tna": 30, "basis": 365}}
+              "rates": {"borrow_tna": 36, "lend_tna": 30, "basis": DAY_BASIS}}
 
     def book(bid, ask):
         return parse_book({"bids": [{"price": bid, "quantity": 1000}],
@@ -229,13 +230,12 @@ def demo_cycle(cycle, *, manual_check=False, manual_spot=None):
     spot = book(100, 101)
     reports = []
     for expiry in TARGETS:
-        maturity = expiry + "-30T12:00:00+00:00"
-        contract = {"expiry": expiry, "maturity": maturity, "price_scale": 1,
-                    "symbol": SYMBOLS[expiry], "market_id": "ROFX",
-                    "multiplier": 10, "costs": {"cash_carry": 0.5, "reverse": 0.5}}
+        contract = CONTRACTS[expiry].watch_instrument()
+        contract["costs"] = {"cash_carry": 0.5, "reverse": 0.5}
+        maturity = contract["maturity"]
         days = (timestamp(maturity) - now).total_seconds() / 86400
-        lower = fair_future(100, 30, days, 365)
-        upper = fair_future(101, 36, days, 365)
+        lower = fair_future(100, 30, days, DAY_BASIS)
+        upper = fair_future(101, 36, days, DAY_BASIS)
         if scenario == 0:
             future = book(lower, upper)
         elif scenario == 1:

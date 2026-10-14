@@ -30,13 +30,13 @@ def nonnegative_rate(value):
 
 
 def main(argv=None):
-    parser = argparse.ArgumentParser(description="PPI read-only GGAL discovery and carry research")
+    parser = argparse.ArgumentParser(description="GGAL Desk console monitoring and optional instrument discovery")
     parser.add_argument("command", choices=("credentials-status", "discover", "assess", "watch"))
     parser.add_argument("--env-file", default=".env")
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument("--live", action="store_true", help="Authorize bounded PPI production authentication and market-data reads")
     modes.add_argument("--demo", action="store_true", help="Synthetic offline watch; no credentials or network")
-    parser.add_argument("--watch-config", help="Optional full arbitrage assumptions JSON; omitted uses pesos and last weekday of month for price/yield comparison")
+    parser.add_argument("--watch-config", help="Optional full assessment JSON; omitted uses the shared GGAL contract assumptions")
     parser.add_argument("--caucion-tna", type=nonnegative_rate, help="Watch live without config: manual caucion annual nominal percentage")
     parser.add_argument("--interval", type=interval_seconds, default=5, help="Target seconds between cycle starts (live minimum 1, default 5; automatic backoff on provider failures)")
     parser.add_argument("--iterations", type=positive_integer, help="Positive cycle count; omitted means until Ctrl+C")

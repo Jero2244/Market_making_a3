@@ -1,0 +1,358 @@
+[
+  {
+    "path": ".env.example",
+    "sha256": "8028462870814F4EA1AAE176DA54FDAD85BE6C4A346EEDAD6CDA4D14BDB812DC"
+  },
+  {
+    "path": ".github/workflows/opencode.yml",
+    "sha256": "584C65FBC1B1B0FF2ED362A3DD54E1BC5277EDC47FA223BEB4405633AF1D749C"
+  },
+  {
+    "path": ".gitignore",
+    "sha256": "0778573F87A1EBE7948AACBE56DE67C1B5841574A5EA38B0DC3808BF395444D6"
+  },
+  {
+    "path": "README.md",
+    "sha256": "E49F25286E4F859295DEEE495B2E6A922164ABCC9691F50B5FDC8A5854D83B83"
+  },
+  {
+    "path": "build_desktop.ps1",
+    "sha256": "7CC85ED16444014AC63FB521C00A02BB2E7B89BA88CA3CB8F2FBD431C3519181"
+  },
+  {
+    "path": "config/ppi_ggal_watch.example.json",
+    "sha256": "2C89607DF1A2F181E5FC192B78E34F5EF1F3971C037899AE00C181B64105D14E"
+  },
+  {
+    "path": "config/replay_acceptance_policy.json",
+    "sha256": "A1B8CAF79B729A30AAF8E6A4F664AEA500CD58B6CA02D585C686F0B8732778D5"
+  },
+  {
+    "path": "desktop_launcher.py",
+    "sha256": "377B81E4BD54F4D7E788D57BD0A4D9C05A57DB616F3DF1549E911E2426FC08A8"
+  },
+  {
+    "path": "docs/COMPETITION_PLAN.md",
+    "sha256": "0C2ED83BD3181D95388B94F9026920A274240681E7E2BA18DF845C000C67CB5A"
+  },
+  {
+    "path": "docs/COMPETITION_REVIEW.md",
+    "sha256": "96536D1AF04EE92B420E3843F363F737416F1EDFE14C2B5DF84858311214FC21"
+  },
+  {
+    "path": "docs/DATA_RECEIVER.md",
+    "sha256": "1A4D1D9BBECC57C6A5B66A360DE82DCEDCC7E27D0729DC0F351B3AF1E4117E31"
+  },
+  {
+    "path": "docs/DEMO_ORDER_TEST.md",
+    "sha256": "ADCE4CD011F95498CA22EAB44BC2907115037EB361A9B3BDC37A22E2158E4D2C"
+  },
+  {
+    "path": "docs/DESKTOP.md",
+    "sha256": "96AED780A67CB292A4F40196B2D1B6635D67AAFBB38CD010BA678DCFB985AF90"
+  },
+  {
+    "path": "docs/FRESHNESS_FINDINGS.md",
+    "sha256": "FEB5C5C39C7A921181E9CDBDDE5F1E7D0E7C0EC24B251FE93B088F435178B0D6"
+  },
+  {
+    "path": "docs/FRESHNESS_SPEC_REQUEST.md",
+    "sha256": "76C9EA5303AEC49B336FB07059496DBE619CA47EF6D7CC9A2F8955085AB0FD73"
+  },
+  {
+    "path": "docs/PLAN.md",
+    "sha256": "1F44FE9A28B37BAF7918FA4BA8457E43F5AC293CF7BEF0144BBD079CD35D91DD"
+  },
+  {
+    "path": "docs/PPI_GGAL_ARBITRAGE.md",
+    "sha256": "782794924C13AD65AA3B0E5475E8289EE11DA494E03A5E3E8FCD3CDD526CC42D"
+  },
+  {
+    "path": "docs/REFRESH_PERFORMANCE.md",
+    "sha256": "A9D71F20537BE61F9082B5DE20739D7A7B52F16F90C2B85287D8CDBA4F7B8D30"
+  },
+  {
+    "path": "docs/REPLAY_ACCEPTANCE.md",
+    "sha256": "A548177C9D1111019C33F73F932DDE7C194FCD716DFB8489BE7F553951B96A34"
+  },
+  {
+    "path": "docs/TECHNICAL_NOTES.md",
+    "sha256": "4E57624D39D7745C5743B86BF2D9DBF7DD173CB08274619C410CDC36A8E513BA"
+  },
+  {
+    "path": "docs/TIMESTAMP_RESEARCH_20261013.md",
+    "sha256": "5D4BD36BEA6B5C5B43B40596D0B91B9CA79DEEA2DF8298DE90AEAF6E7D47FFFD"
+  },
+  {
+    "path": "pyproject.toml",
+    "sha256": "CFBD37D1F4DB2D148BBCE5ECE9F49E01A6D97544CD195679890F1FF33A209838"
+  },
+  {
+    "path": "requirements-desktop-build.txt",
+    "sha256": "80FEF50146E761076977D9AA640844E7D64148CBCFCB937A5BFBDAF7301C8DB7"
+  },
+  {
+    "path": "requirements.txt",
+    "sha256": "52C92CA536B9187FFAF1491D6F936C372A4ECB9FA4AE333B9CB8A11670104824"
+  },
+  {
+    "path": "src/market_making/__init__.py",
+    "sha256": "22CDD7E12304DF6509C98DCDB666097D13A703EC0C8FDCAFFFCEC4240B320C7E"
+  },
+  {
+    "path": "src/market_making/desktop/__init__.py",
+    "sha256": "CBAE7F80689352864523D7299A940A456131867E928955C2D3658BC80005C7DB"
+  },
+  {
+    "path": "src/market_making/desktop/app.py",
+    "sha256": "09589145EE92BDB06364EAEAB1E931CC2AE0FFFACB044BAC1975FB2F9D1DC032"
+  },
+  {
+    "path": "src/market_making/desktop/controller.py",
+    "sha256": "689C9CC16E520FC3B349AA61E325ECD9F4317141330840FD15CAD5BEAE343D35"
+  },
+  {
+    "path": "src/market_making/desktop/scenario_controller.py",
+    "sha256": "7407224464860CA69CAA73617349DEEFFD2FE0E77A4DFA050F568929DE0AAAC1"
+  },
+  {
+    "path": "src/market_making/desktop/scenario_tab.py",
+    "sha256": "99DC676C7EC88D1157FCB5271AC9FD2F789688C289EDCEE541021BA2925BB6EC"
+  },
+  {
+    "path": "src/market_making/execution/__init__.py",
+    "sha256": "92C2CAE8BB365CB1870A52C3FDF3BCA643CB62B02F9E4DB83AA436F40AB6E7CE"
+  },
+  {
+    "path": "src/market_making/execution/demo_execution.py",
+    "sha256": "7B57947D9C2B0104561CD5C0120771BC40B7C0F41FC78D160D19D6C849E56526"
+  },
+  {
+    "path": "src/market_making/execution/smoke_demo_order.py",
+    "sha256": "F10EBDEE429A20010C4727A751371C48FFD35DEB222D4452314A7308E47D4597"
+  },
+  {
+    "path": "src/market_making/market_data/__init__.py",
+    "sha256": "D7F5155726B19282305D36C1D8FAE1DA5DFF8395E5FE35FE4765A7A75B18F9D3"
+  },
+  {
+    "path": "src/market_making/market_data/check_connection.py",
+    "sha256": "C06E7E335BEE51AEDD03254978C8035111346C70E9CE13567F320B6168B37F1A"
+  },
+  {
+    "path": "src/market_making/market_data/instrument_rules.py",
+    "sha256": "84687240877C421EFE436668639340AFF8748727DAAB328736E2DF6A0049FC10"
+  },
+  {
+    "path": "src/market_making/market_data/order_book.py",
+    "sha256": "C78744E922EF7BF757C3CDB03C40E942B5EE4D1E2017AC9BD57BDF7673938461"
+  },
+  {
+    "path": "src/market_making/market_data/reference_clock.py",
+    "sha256": "FA67E1E13E80669D57062E83DAFDF799AC3F81825F8F3EEC6132B49582BC77F2"
+  },
+  {
+    "path": "src/market_making/market_data/snapshot_feed.py",
+    "sha256": "5EE76B785D6E396ED5131911B5D80BC243617EB44944A35DF11D0FA2C76B76AC"
+  },
+  {
+    "path": "src/market_making/market_data/stream_market_data.py",
+    "sha256": "1F074C149ACCEC13FA2F9C45D1CE22E71F8D8ED2DA36499C02AFBBEB0EB8FD21"
+  },
+  {
+    "path": "src/market_making/market_data/view_order_book.py",
+    "sha256": "68BD622794445C2E4241869320527F0E6038140506F42348325024BB0BCC43C0"
+  },
+  {
+    "path": "src/market_making/paths.py",
+    "sha256": "D4BF3964A7B721104F27E23D88CAE4CD2E5623AA80EF4EC34CD1B1EABE9C4B86"
+  },
+  {
+    "path": "src/market_making/ppi/__init__.py",
+    "sha256": "07930E707E6A127B44CAE9437B32992AB29A68E864917CD522702D0D6E388DFF"
+  },
+  {
+    "path": "src/market_making/ppi/arbitrage.py",
+    "sha256": "27C67F3C82F778254C9271361CFBC9BBDBFF028B751D0517624BC21FA96B6476"
+  },
+  {
+    "path": "src/market_making/ppi/cli.py",
+    "sha256": "E530F37E6EC829FEAF8F834D1E5A2340E1DFCF9E91F629A4A9D5CE607CE648FB"
+  },
+  {
+    "path": "src/market_making/ppi/client.py",
+    "sha256": "CD63FDBC3F4E8D7C3EA5928CC64F7C673001B7E9568E154C7CAA617820F0083E"
+  },
+  {
+    "path": "src/market_making/ppi/config.py",
+    "sha256": "121714952B8D95F3D4ABAD216BF02C92911DD845F5563BCA8554C67F3346DE0D"
+  },
+  {
+    "path": "src/market_making/ppi/deadline.py",
+    "sha256": "F785C87D585E51D8D11B6C19C9E0FEF0B929E50C4286AF034BD084C33474850E"
+  },
+  {
+    "path": "src/market_making/ppi/discovery.py",
+    "sha256": "CE231464D1F3C3C2F25B8D5F199173E37D3FF4F72D21C2452BEE10258FBC74EB"
+  },
+  {
+    "path": "src/market_making/ppi/models.py",
+    "sha256": "1EDFB39CC248C6C59D5555151710EE0B6D973849AAFB79CD526602BDF6FD3949"
+  },
+  {
+    "path": "src/market_making/ppi/monitor.py",
+    "sha256": "3B6F0FDF3B7FA4F6533DC99A975A8385E66CD30785453DADF1C78C541610889E"
+  },
+  {
+    "path": "src/market_making/ppi/monitor_config.py",
+    "sha256": "ECA1C10C6BAE5A52522698E3CCB4FFB892A38197A2E47E82B87E3A2D1F0DE8E4"
+  },
+  {
+    "path": "src/market_making/ppi/remarkets.py",
+    "sha256": "26E9A036025895F925D132073E4908A31C567DFC5064CE0D9CA5868980BD49E8"
+  },
+  {
+    "path": "src/market_making/scenarios/__init__.py",
+    "sha256": "901C09D7A3E28485F272AC4BBDF75758B1932473D745E10773B59CADED107444"
+  },
+  {
+    "path": "src/market_making/scenarios/calculation.py",
+    "sha256": "8EF03D67D7961784694156B702864E7DDD214537828527A5717B5E5B9DCFA5BE"
+  },
+  {
+    "path": "src/market_making/scenarios/calendar.py",
+    "sha256": "D201AE506AEC76F15F32725B93CC1CA21A57823FBDDEA6EFD49CEBCDA839773A"
+  },
+  {
+    "path": "src/market_making/scenarios/distribution.py",
+    "sha256": "60B9DB4D25EA5B2D3A0AA87B93588AC4CF90FA211987E2E17A9BD372F750742E"
+  },
+  {
+    "path": "src/market_making/scenarios/history.py",
+    "sha256": "EF3CE19EC7E8894E60F4B09CCD7BC248B761D7A9A4B529101AA6BEF6ECBF275C"
+  },
+  {
+    "path": "src/market_making/validation/__init__.py",
+    "sha256": "6263A5854AFAFF440D9A1D5CEDB11BD676CC14BF3B29F4860D520E8CC1B9ECAC"
+  },
+  {
+    "path": "src/market_making/validation/collect_session_sources.py",
+    "sha256": "F6619904497CCEAC08C04936230CA26E0304D6DC793CC3043FAE7E463FA9FB22"
+  },
+  {
+    "path": "src/market_making/validation/reanalyze_demo.py",
+    "sha256": "40FACFF3E04586590E15AAAC3D67CB899F46F31808F8BA8A789214008EBA73DE"
+  },
+  {
+    "path": "src/market_making/validation/replay_readiness.py",
+    "sha256": "3CEB9EF704BEFA8903B8E172196A32ECA90C2867833B2B253D14512082F30087"
+  },
+  {
+    "path": "src/market_making/validation/validate_live.py",
+    "sha256": "ADF53ACD0EA901C5BCC22267484FAA5B5C429BC3547D740C56817A44A708D4F4"
+  },
+  {
+    "path": "tests/fixtures/remarkets_ggal_dic26.json",
+    "sha256": "64824C74E8AE34321AAE74EC91326FCB3C2C4D0897EDC0C45C9BA633B90DA18D"
+  },
+  {
+    "path": "tests/fixtures/remarkets_ggal_oct26.json",
+    "sha256": "7F06A34DF10048840394A0C0ABD3561E0C7CD4542E82C50D4D5EF8ECBABDBBFF"
+  },
+  {
+    "path": "tests/test_demo_order.py",
+    "sha256": "9F0BE40062CF3AD92D4C296549148D5963FD4244DC13F78E3757424F013BAA3B"
+  },
+  {
+    "path": "tests/test_desktop_controller.py",
+    "sha256": "FCFEF6C6CE8CE755D1FDBFAFBA3F3D9F4A3EDCDDBEC123727E28027902D42516"
+  },
+  {
+    "path": "tests/test_freshness_247.py",
+    "sha256": "FCDE3964319C0AD3C133049A193352006F9CBECA42AF40554A277917B706391A"
+  },
+  {
+    "path": "tests/test_pnl_probability.py",
+    "sha256": "A5E6CB415FA49AB54BA206790123C094E2FEBCC47D66EBC38319A639EC7AA21F"
+  },
+  {
+    "path": "tests/test_position_scenarios.py",
+    "sha256": "917A8135339B975087EBC82D0F183389C0078947C27C244C4C0B8421CF19B9D9"
+  },
+  {
+    "path": "tests/test_ppi_arbitrage.py",
+    "sha256": "5322376CEF2F67EA423DB71B83A5D843DEE90185EB87DD86E5281711932C50C8"
+  },
+  {
+    "path": "tests/test_ppi_client.py",
+    "sha256": "D2FFE78B8BD5A166A05AD3BDE48EA979EF4DA615B9A692924836848046C85286"
+  },
+  {
+    "path": "tests/test_ppi_config.py",
+    "sha256": "C19F8FFA3A7CE262B9EEDDFE5375E964313A752CEEC030FFE70E3982CF93AD3A"
+  },
+  {
+    "path": "tests/test_ppi_deadline.py",
+    "sha256": "50F56C7D37F99F69013515BCB8B12731FC5568B4A29FB7E26F16B8873AF5F89C"
+  },
+  {
+    "path": "tests/test_ppi_discovery_cli.py",
+    "sha256": "6F86CA48EF51A6B127ECE4875F27DBA1BBC12A7F232CD57BA3C6BE9CB1A320D3"
+  },
+  {
+    "path": "tests/test_ppi_monitor.py",
+    "sha256": "45868A79E59F9985A85F7ABBCF6D0D1CBEA4629118DF941BDFDCB26A919B54AB"
+  },
+  {
+    "path": "tests/test_ppi_quote_defaults.py",
+    "sha256": "6AC5353A3383F5B6EC99088BDCA63045304119AADE1AF9901128C8A9524F243A"
+  },
+  {
+    "path": "tests/test_ppi_remarkets.py",
+    "sha256": "BC2FEC889207DE9DAB242731AD691264E3F3115E2C7B0A9A28A5DA16C020A0FB"
+  },
+  {
+    "path": "tests/test_ppi_watch_sessions.py",
+    "sha256": "1A4A452F89AB2896F0316C23A4D7F37D1D75C1A8B1A5544C60153C15E7589E72"
+  },
+  {
+    "path": "tests/test_project_layout.py",
+    "sha256": "3793A98F0FC0731E4951E0374ECF748740ECFE574E2BF90E345E2B7942D90785"
+  },
+  {
+    "path": "tests/test_reference_clock.py",
+    "sha256": "42A158EE75B51AF37249B651F92662C73AE2319EA99985404AE85DE69689FB91"
+  },
+  {
+    "path": "tests/test_replay_readiness.py",
+    "sha256": "A789F9A4A80FC7DAFB192078D8DEB6A82093AB919976E7A23FF21F3B40B4A56C"
+  },
+  {
+    "path": "tests/test_return_distribution.py",
+    "sha256": "DC32A64A97DA054CA00E34208EC6216AFC286CD6B44683F8C700F564DBBF794B"
+  },
+  {
+    "path": "tests/test_scenario_controller.py",
+    "sha256": "6464E2EDFCBEC7225AC7898260C43F81BDEDF379A15F4E514F182B9775975B91"
+  },
+  {
+    "path": "tests/test_scenario_history.py",
+    "sha256": "E8239FDE0759F488CF7997DD8F8BFE5621A1D781BC6E2A5021D249824872D78B"
+  },
+  {
+    "path": "tests/test_scenario_tab.py",
+    "sha256": "8E4BF8A9FAB308C8E259C05630642A0F1401E380802576610BC74A114984A620"
+  },
+  {
+    "path": "tests/test_snapshot_feed.py",
+    "sha256": "F724BCFC9BBB5FF728C96A76BD6EB7104447C8346112B9D7D91C31496788ADE6"
+  },
+  {
+    "path": "tests/test_stream_market_data.py",
+    "sha256": "11B8750E46683E1EBAE017498AF377E9BAC10AD7956DEF9BE950E2363CEFD70F"
+  },
+  {
+    "path": "tests/test_validate_live.py",
+    "sha256": "04B08C72008EA90622131C09245E286E49BAA9D5F2E850A9036B132BF68F7CB2"
+  }
+]

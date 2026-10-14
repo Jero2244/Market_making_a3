@@ -1,0 +1,25 @@
+{
+  "spot": {
+    "ticker": "GGAL", "type": "ACCIONES", "settlement": "INMEDIATA",
+    "underlying": "GGAL", "currency": "ARS", "price_scale": 1, "multiplier": 1,
+    "provenance": "REPLACE with reviewed ordinary-share instrument source"
+  },
+  "futures": [
+    {
+      "expiry": "2026-10", "maturity": "REPLACE with exact timezone-aware October maturity",
+      "provider": "remarkets", "symbol": "GGAL/OCT26", "market_id": "ROFX",
+      "underlying": "GGAL", "currency": "ARS", "price_scale": null, "multiplier": null,
+      "provenance": "REPLACE with exact contract specification source",
+      "costs": {"cash_carry": null, "reverse": null, "provenance": "REPLACE all-in ARS/share costs source"}
+    },
+    {
+      "expiry": "2026-12", "maturity": "REPLACE with exact timezone-aware December maturity",
+      "provider": "remarkets", "symbol": "GGAL/DIC26", "market_id": "ROFX",
+      "underlying": "GGAL", "currency": "ARS", "price_scale": null, "multiplier": null,
+      "provenance": "REPLACE with exact contract specification source",
+      "costs": {"cash_carry": null, "reverse": null, "provenance": "REPLACE all-in ARS/share costs source"}
+    }
+  ],
+  "rates": {"borrow_tna": null, "lend_tna": null, "basis": 365, "provenance": "REPLACE explicit rate-side convention and observation time"},
+  "threshold": 0, "contracts": 1, "max_age_seconds": 30
+}

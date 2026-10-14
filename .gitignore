@@ -8,6 +8,7 @@ __pycache__/
 *.egg-info/
 build/
 dist/
+archive/generated/
 
 # Local credentials and environment files (commit only sanitized templates)
 .env

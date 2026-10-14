@@ -2,6 +2,8 @@
 from datetime import date
 import unittest
 
+from market_making.contracts import DEFAULT_EXPIRIES
+from market_making.ppi.monitor_config import default_watch_config
 from market_making.scenarios.calendar import (
     BYMA_2026_CLOSED, BYMA_2026_OPEN, advance_sessions, is_session, sessions_between,
 )
@@ -24,6 +26,15 @@ class ScenarioCalculationTests(unittest.TestCase):
         result = calculate(100, 5, [self.position(-2)], date(2026, 10, 14))
         self.assertAlmostEqual(result.total_from_today, -837.5)
         self.assertAlmostEqual(result.total_since_entry, -2837.5)
+
+    def test_manual_expiry_override_changes_scenario_without_changing_monitor(self):
+        before = default_watch_config()
+        default = calculate(100, 0, [self.position(1)], date(2026, 10, 14))
+        override = calculate(100, 0, [self.position(1, maturity=date(2026, 10, 20))],
+                             date(2026, 10, 14))
+        self.assertNotEqual(override.total_from_today, default.total_from_today)
+        self.assertEqual(DEFAULT_EXPIRIES['2026-10'], date(2026, 10, 30))
+        self.assertEqual(default_watch_config(), before)
 
     def test_opposing_expiries_sum_signed_results(self):
         positions = [self.position(1), Position("2026-12", -3, 112, 115, date(2026, 12, 30))]

@@ -1,3 +1,2 @@
 requests>=2.32.3,<3
-websocket-client>=1.8,<2
 exchange-calendars>=4.13.2,<5

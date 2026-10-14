@@ -4,10 +4,7 @@ from datetime import date
 import math
 
 from .calendar import advance_sessions
-
-CONTRACT_SHARES = 100
-DEFAULT_EXPIRIES = {"2026-10": date(2026, 10, 30), "2026-12": date(2026, 12, 30)}
-SYMBOLS = {"2026-10": "GGAL/OCT26", "2026-12": "GGAL/DIC26"}
+from market_making.contracts import CONTRACT_SHARES, DAY_BASIS, DEFAULT_EXPIRIES, SYMBOLS
 
 
 def finite(value, label, *, positive=False):
@@ -71,7 +68,7 @@ def calculate(spot, move, positions, reference_date, *, horizon=2, assumed_tna=N
     seen = set()
     for position in positions:
         if position.expiry not in DEFAULT_EXPIRIES or position.expiry in seen:
-            raise ValueError("Use distinct October and December positions.")
+            raise ValueError("Use distinct configured contract positions.")
         seen.add(position.expiry)
         q = position.contracts
         if type(q) is not int:
@@ -89,9 +86,9 @@ def calculate(spot, move, positions, reference_date, *, horizon=2, assumed_tna=N
             continue
         days = (position.maturity - reference_date).days
         remaining = (position.maturity - target).days
-        rate = finite((current / spot - 1) * 365 / days, "implied financing rate")
+        rate = finite((current / spot - 1) * DAY_BASIS / days, "implied financing rate")
         projection_tna = finite(rate * 100, "implied TNA") if assumed_tna is None else assumed_tna
-        future = finite(projected * (1 + (projection_tna / 100) * remaining / 365),
+        future = finite(projected * (1 + (projection_tna / 100) * remaining / DAY_BASIS),
                         "projected future price", positive=True)
         try:
             change = finite(q * CONTRACT_SHARES * (future - current), "profit/loss")

@@ -1,26 +1,12 @@
 """Explicit proxy assumptions, not a metadata verification/execution bypass."""
 import json
-import calendar
-from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from market_making.contracts import CONTRACTS, DAY_BASIS, TARGETS, SYMBOLS
 from .models import number, timestamp
-
-TARGETS = ("2026-10", "2026-12")
-SYMBOLS = {"2026-10": "GGAL/OCT26", "2026-12": "GGAL/DIC26"}
 
 # Optional manual caucion TNA percentage. Leave None to display n/a, or set
 # your rate here. --caucion-tna overrides this value for a single run.
 CAUCION_TNA = None
-
-
-def last_weekday_maturity(expiry):
-    """User's calendar proxy: last Mon-Fri, end of day in Buenos Aires."""
-    year, month = map(int, expiry.split('-'))
-    maturity = datetime(year, month, calendar.monthrange(year, month)[1],
-                        23, 59, 59, tzinfo=timezone(timedelta(hours=-3)))
-    while maturity.weekday() >= 5:
-        maturity -= timedelta(days=1)
-    return maturity.isoformat()
 
 
 def default_watch_config(caucion_tna=None):
@@ -29,10 +15,8 @@ def default_watch_config(caucion_tna=None):
     if rate is not None:
         rate = number(rate, positive=False)
     return {"quote_only": True, "spot": {"ticker": "GGAL", "type": "ACCIONES", "settlement": "INMEDIATA"},
-            "futures": [{"expiry": expiry, "symbol": SYMBOLS[expiry], "market_id": "ROFX",
-                         "provider": "remarkets", "maturity": last_weekday_maturity(expiry), "price_scale": 1}
-                        for expiry in TARGETS],
-            "rates": {"borrow_tna": rate, "lend_tna": None, "basis": 365}, "max_age_seconds": 30}
+            "futures": [contract.watch_instrument() for contract in CONTRACTS.values()],
+            "rates": {"borrow_tna": rate, "lend_tna": None, "basis": DAY_BASIS}, "max_age_seconds": 30}
 
 
 def _keys(value, keys):
@@ -68,7 +52,7 @@ def validate_config(data):
     if spot["ticker"] != "GGAL" or spot["type"] != "ACCIONES" or spot["price_scale"] != 1 or spot["multiplier"] != 1:
         raise ValueError("ordinary_GGAL_ARS_share_required")
     futures = data["futures"]
-    if not isinstance(futures, list) or len(futures) != 2:
+    if not isinstance(futures, list) or len(futures) != len(TARGETS):
         raise ValueError("exact_two_target_expiries_required")
     seen = set()
     ids = set()
@@ -76,7 +60,8 @@ def validate_config(data):
         if isinstance(future, dict) and any(k in future for k in ("ticker", "type", "settlement")):
             raise ValueError("legacy_PPI_futures_not_supported_use_remarkets_symbol_and_market_id")
         _keys(future, "expiry maturity provider symbol market_id underlying currency price_scale multiplier provenance costs")
-        if future["provider"] != "remarkets" or future["market_id"] != "ROFX":
+        settings = CONTRACTS.get(future["expiry"])
+        if settings is None or future["provider"] != settings.provider or future["market_id"] != settings.market_id:
             raise ValueError("remarkets_ROFX_futures_required")
         _text(future["symbol"])
         if future["symbol"] != SYMBOLS.get(future["expiry"]):
@@ -95,7 +80,7 @@ def validate_config(data):
         for direction in ("cash_carry", "reverse"):
             number(future["costs"][direction], positive=False)
         _text(future["costs"]["provenance"])
-    if seen != set(TARGETS) or len(ids) != 2:
+    if seen != set(TARGETS) or len(ids) != len(TARGETS):
         raise ValueError("exact_distinct_target_expiries_required")
     return data
 

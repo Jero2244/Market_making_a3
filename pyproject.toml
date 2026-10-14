@@ -3,9 +3,9 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "rfx20-market-making"
+name = "ggal-desk"
 version = "0.1.0"
-description = "Primary REMARKETS market data, offline validation, and guarded demo execution"
+description = "Read-only GGAL futures price comparisons and manual position scenarios"
 readme = "README.md"
 requires-python = ">=3.10"
 dynamic = ["dependencies"]
@@ -18,15 +18,10 @@ where = ["src"]
 
 [project.scripts]
 ppi-readonly = "market_making.ppi.cli:main"
-check-connection = "market_making.market_data.check_connection:main"
-stream-market-data = "market_making.market_data.stream_market_data:main"
-snapshot-market-data = "market_making.market_data.snapshot_feed:main"
-view-order-book = "market_making.market_data.view_order_book:main"
-smoke-demo-order = "market_making.execution.smoke_demo_order:main"
-validate-live = "market_making.validation.validate_live:main"
-collect-session-sources = "market_making.validation.collect_session_sources:main"
-reanalyze-demo = "market_making.validation.reanalyze_demo:main"
-replay-readiness = "market_making.validation.replay_readiness:main"
 
 [project.gui-scripts]
 ggal-desk = "market_making.desktop.app:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+norecursedirs = ["archive", "build", "dist", ".venv", ".venv-desktop-build"]
