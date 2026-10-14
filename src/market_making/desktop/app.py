@@ -12,6 +12,7 @@ from market_making.contracts import CONTRACTS, DAY_BASIS
 from market_making.desktop.controller import MonitorController, WatchOptions, default_env_file
 from market_making.desktop.scenario_tab import ScenarioTab
 from market_making.ppi import monitor
+from market_making.ppi.models import ManualSpotQuote
 
 BG = "#f3f5f9"
 INK = "#17243b"
@@ -121,21 +122,25 @@ class DesktopApp:
         self.config = tk.StringVar()
         self.manual = tk.BooleanVar(value=False)
         spot_inputs = ttk.Frame(checker)
-        spot_inputs.pack(fill="x", pady=(0, 12))
+        spot_inputs.pack(fill="x", pady=(0, 4))
         self.manual_spot_enabled = tk.BooleanVar(value=False)
-        self.manual_spot_value = tk.StringVar()
+        self.manual_spot_fields = {side: tk.StringVar() for side in ("bid", "ask")}
         self.manual_spot_toggle = ttk.Checkbutton(spot_inputs, text="Manual GGAL spot (ARS/share)",
                                                 variable=self.manual_spot_enabled,
                                                 command=self.toggle_manual_spot)
         self.manual_spot_toggle.pack(side="left")
-        self.manual_spot_entry = ttk.Entry(spot_inputs, textvariable=self.manual_spot_value,
-                                          width=12, state="disabled")
-        self.manual_spot_entry.pack(side="left", padx=8)
-        self.manual_spot_apply = ttk.Button(spot_inputs, text="Apply price", command=self.apply_manual_spot,
+        self.manual_spot_entries = {}
+        for side, variable in self.manual_spot_fields.items():
+            ttk.Label(spot_inputs, text=side.title()).pack(side="left", padx=(12, 0))
+            entry = ttk.Entry(spot_inputs, textvariable=variable, width=12, state="disabled")
+            entry.pack(side="left", padx=8)
+            entry.bind("<Return>", lambda _: self.apply_manual_spot())
+            self.manual_spot_entries[side] = entry
+        self.manual_spot_apply = ttk.Button(spot_inputs, text="Apply bid/ask", command=self.apply_manual_spot,
                                            state="disabled")
         self.manual_spot_apply.pack(side="left")
-        ttk.Label(spot_inputs, text="Reference price for yield; Apply updates the next refresh.",
-                  style="Muted.TLabel").pack(side="left", padx=12)
+        ttk.Label(checker, text="Apply bid/ask or press Enter to use both prices on the next refresh.",
+                  style="Muted.TLabel").pack(anchor="w", pady=(0, 12))
 
         self.cards = {}
         cards = ttk.Frame(checker)
@@ -203,14 +208,32 @@ class DesktopApp:
         if not self.manual_spot_enabled.get():
             return None
         try:
-            return monitor.number(float(self.manual_spot_value.get().strip().replace(",", ".")))
+            return ManualSpotQuote(**{side: float(variable.get().strip().replace(",", "."))
+                                      for side, variable in self.manual_spot_fields.items()})
         except (ValueError, OverflowError):
-            raise ValueError("Enter a positive, finite GGAL spot price in ARS per share.") from None
+            raise ValueError("Enter positive, finite GGAL spot bid and ask prices in ARS per share, "
+                             "with bid no greater than ask.") from None
 
     def toggle_manual_spot(self):
-        state = "normal" if self.manual_spot_enabled.get() else "disabled"
-        self.manual_spot_entry.configure(state=state)
+        enabled = self.manual_spot_enabled.get()
+        state = "normal" if enabled else "disabled"
+        for entry in self.manual_spot_entries.values():
+            entry.configure(state=state)
         self.manual_spot_apply.configure(state=state)
+        if enabled:
+            if self.reports:
+                spot = (self.reports[0].get("books") or {}).get("spot")
+                for side, variable in self.manual_spot_fields.items():
+                    price = best(spot, "bids" if side == "bid" else "offers")
+                    if not variable.get().strip() and price is not None:
+                        variable.set(format(price, ".12g"))
+            self.manual_spot_entries["bid"].focus_set()
+            self.notice.set("Enter GGAL spot bid and ask in ARS/share, then click Apply bid/ask or press Enter.")
+        else:
+            self.controller.set_manual_spot(None)
+            source = "Synthetic demo spot" if self.session_demo and self.controller.running else "PPI spot"
+            self.notice.set(source + " selected" +
+                            (" / used on the next refresh" if self.controller.running else " / ready for the next check"))
 
     def apply_manual_spot(self):
         try:
@@ -218,8 +241,10 @@ class DesktopApp:
         except ValueError as exc:
             messagebox.showinfo("Check spot price", str(exc), parent=self.root)
             return
+        if price is None:
+            return
         self.controller.set_manual_spot(price)
-        self.notice.set("Manual GGAL spot saved: " + fmt(price, " ARS/share") +
+        self.notice.set("Manual GGAL spot saved: bid " + fmt(price.bid) + " / ask " + fmt(price.ask, " ARS/share") +
                         (" / used on the next refresh" if self.controller.running else " / ready for the next check"))
 
     def start_live(self):
@@ -243,13 +268,14 @@ class DesktopApp:
         self.stopping = False
         self.clear()
         self.set_running(True)
-        self.notice.set("Synthetic demo / no broker connection" if demo else "Connecting to PPI and REMARKETS...")
+        self.notice.set("Synthetic demo / no broker connection" if demo else
+                        "Connecting to REMARKETS / using manual GGAL spot..." if options.manual_spot is not None else
+                        "Connecting to PPI and REMARKETS...")
         self.state.set("Starting demo..." if demo else "Connecting...")
         self.controller.start(options)
 
     def set_running(self, running):
-        for widget in (self.start_button, self.demo_button, self.settings_button, self.rate_entry, self.interval_entry,
-                       self.manual_spot_toggle):
+        for widget in (self.start_button, self.demo_button, self.settings_button, self.rate_entry, self.interval_entry):
             widget.configure(state="disabled" if running else "normal")
         self.stop_button.configure(state="normal" if running else "disabled")
 
@@ -294,8 +320,8 @@ class DesktopApp:
             self.sources.set("Manual GGAL spot + " + ("synthetic demo futures" if first["mode"] == "DEMO" else
                                                        "REMARKETS simulated futures / read-only price comparison"))
             self.cards["spot"]["subtitle"].set("Manual reference / ARS per share")
-            self.cards["spot"]["status"].set("User input / spread and depth unknown")
-            self.cards["spot"]["yield"].set("Same reference price on both sides")
+            self.cards["spot"]["status"].set("User input / depth unverified")
+            self.cards["spot"]["yield"].set("Manual spot ask is used for cash carry")
         summaries = []
         for expiry in monitor.TARGETS:
             report = by_expiry[expiry]
@@ -451,17 +477,34 @@ def self_test(output):
         app.interval.set("5")
         app.manual_spot_enabled.set(True)
         app.toggle_manual_spot()
-        app.manual_spot_value.set("100,5")
-        assert app.options().manual_spot == 100.5
+        app.manual_spot_fields["bid"].set("99,5")
+        app.manual_spot_fields["ask"].set("100,5")
+        assert app.options().manual_spot == ManualSpotQuote(99.5, 100.5)
         app.apply_manual_spot()
-        assert app.controller.get_manual_spot() == 100.5
-        app.render(monitor.demo_cycle(1, manual_spot=100.5))
+        assert app.controller.get_manual_spot() == ManualSpotQuote(99.5, 100.5)
+        app.render(monitor.demo_cycle(1, manual_spot=app.parse_manual_spot()))
         assert app.cards["spot"]["subtitle"].get() == "Manual reference / ARS per share"
-        app.manual_spot_value.set("105")
+        assert app.cards["spot"]["bid"].get() == "99.50"
+        assert app.cards["spot"]["ask"].get() == "100.50"
+        app.manual_spot_fields["bid"].set("103")
+        app.manual_spot_fields["ask"].set("105")
         app.apply_manual_spot()
-        assert app.controller.get_manual_spot() == 105
+        assert app.controller.get_manual_spot() == ManualSpotQuote(103, 105)
+        for bid, ask in (("", "105"), ("103", ""), ("106", "105"), ("nan", "105")):
+            app.manual_spot_fields["bid"].set(bid)
+            app.manual_spot_fields["ask"].set(ask)
+            try:
+                app.options()
+            except ValueError:
+                pass
+            else:
+                raise AssertionError("Invalid manual bid/ask accepted")
+        assert app.controller.get_manual_spot() == ManualSpotQuote(103, 105)
         app.manual_spot_enabled.set(False)
         app.toggle_manual_spot()
+        assert app.controller.get_manual_spot() is None
+        assert all(entry.instate(["disabled"]) for entry in app.manual_spot_entries.values())
+        assert app.manual_spot_apply.instate(["disabled"])
         for cycle in range(1, 5):
             app.render(monitor.demo_cycle(cycle))
             root.update()
@@ -483,7 +526,37 @@ def self_test(output):
             root.update()
             time.sleep(.01)
         assert app.reports and app.reports[0]["mode"] == "DEMO"
+        assert not app.manual_spot_toggle.instate(["disabled"])
+        for variable in app.manual_spot_fields.values():
+            variable.set("")
+        spot_book = app.reports[0]["books"]["spot"]
+        spot_quote = ManualSpotQuote(best(spot_book, "bids"), best(spot_book, "offers"))
+        app.manual_spot_toggle.invoke()
+        assert app.manual_spot_enabled.get()
+        assert app.parse_manual_spot() == spot_quote
+        assert all(not entry.instate(["disabled"]) for entry in app.manual_spot_entries.values())
+        app.manual_spot_fields["bid"].set("107,5")
+        app.manual_spot_fields["ask"].set("108,5")
+        app.manual_spot_apply.invoke()
+        deadline = time.monotonic() + 5
+        while best(app.reports[0]["books"]["spot"], "offers") != 108.5 and time.monotonic() < deadline:
+            root.update()
+            time.sleep(.01)
+        assert app.reports[0]["books"]["spot"]["provider"] == "manual"
+        assert best(app.reports[0]["books"]["spot"], "bids") == 107.5
+        assert best(app.reports[0]["books"]["spot"], "offers") == 108.5
+        assert app.cards["spot"]["bid"].get() == "107.50"
+        assert app.cards["spot"]["ask"].get() == "108.50"
+        assert app.cards["spot"]["subtitle"].get() == "Manual reference / ARS per share"
+        app.manual_spot_toggle.invoke()
+        assert app.controller.get_manual_spot() is None
+        deadline = time.monotonic() + 5
+        while app.reports[0]["books"]["spot"]["provider"] == "manual" and time.monotonic() < deadline:
+            root.update()
+            time.sleep(.01)
+        assert app.reports[0]["books"]["spot"]["provider"] == "synthetic"
         app.stop()
+        deadline = time.monotonic() + 5
         while app.controller.running and time.monotonic() < deadline:
             root.update()
             time.sleep(.01)
@@ -493,6 +566,10 @@ def self_test(output):
         Path(output).write_text(json.dumps({"ok": True, "tk": tk.TkVersion, "demo_scenarios": 4,
                                            "start_stop": True, "live_minimum_seconds": 1,
                                            "live_default_seconds": 5, "futures_helper_tabs": 2,
+                                           "manual_spot_during_monitoring": True,
+                                           "manual_spot_switch_back": True,
+                                           "manual_spot_bid_ask": True,
+                                           "manual_spot_input_validation": True,
                                            "shared_contract_defaults": True,
                                            "position_scenarios": True, "scenario_calendar": "XBUE",
                                            "scenario_offline_pnl": True, "scenario_histogram": True,

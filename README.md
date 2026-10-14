@@ -6,8 +6,9 @@ entered positions.
 
 The app has two screens:
 
-- **GGAL arbitrage**: bid/ask prices, implied TNA, manual caucion comparison,
-  book details, snapshot export and an optional assessment with funding and costs.
+- **GGAL arbitrage**: bid/ask prices, manual spot bid/ask override, implied TNA, manual
+  caucion comparison, book details, snapshot export and an optional assessment
+  with funding and costs.
 - **Position scenarios**: long/short GGAL positions, projected gross P/L,
   historical return distributions and horizon-based probability estimates.
 

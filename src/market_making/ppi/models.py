@@ -30,6 +30,19 @@ class Level:
     quantity: float
 
 
+@dataclass(frozen=True)
+class ManualSpotQuote:
+    """User-entered bid/ask references, applied together without market depth."""
+    bid: float
+    ask: float
+
+    def __post_init__(self):
+        object.__setattr__(self, "bid", number(self.bid))
+        object.__setattr__(self, "ask", number(self.ask))
+        if self.bid > self.ask:
+            raise ValueError("manual_spot_bid_above_ask")
+
+
 @dataclass
 class Book:
     bid: Level | None

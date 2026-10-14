@@ -10,7 +10,7 @@ from market_making.contracts import CONTRACTS, DAY_BASIS
 from .arbitrage import fair_future, finite, period_rate, price_diagnostics, MANUAL_FRESHNESS_CAVEAT
 from .client import Client, PPIError
 from .config import load_credentials
-from .models import Book, Level, number, parse_book, timestamp
+from .models import Book, Level, ManualSpotQuote, number, parse_book, timestamp
 from .monitor_config import TARGETS, SYMBOLS, load_watch_config, default_watch_config
 from .remarkets import Client as RemarketsClient, load_credentials as load_primary_credentials, parse_snapshot
 
@@ -23,10 +23,14 @@ TRANSIENT_FAILURES = frozenset(("http_failure_429", "http_failure_500", "http_fa
 
 
 def manual_spot_book(price):
-    """A user reference price supplies neither an executable spread nor depth."""
-    level = Level(number(price), 0)
-    return Book(level, level, None, None, None, datetime.now(timezone.utc),
-                ["source_timestamp_missing_or_ambiguous"], bids=(level,), offers=(level,),
+    """User bid/ask references supply neither verified quotes nor market depth.
+
+    A single numerical reference is still accepted by existing callers.
+    """
+    quote = price if isinstance(price, ManualSpotQuote) else ManualSpotQuote(price, price)
+    bid, ask = Level(quote.bid, 0), Level(quote.ask, 0)
+    return Book(bid, ask, None, None, None, datetime.now(timezone.utc),
+                ["source_timestamp_missing_or_ambiguous"], bids=(bid,), offers=(ask,),
                 identity_basis="manual_reference_price")
 
 

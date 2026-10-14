@@ -19,11 +19,15 @@ your manual **Caucion TNA (%)**. Blank caucion means unknown. The default refres
 is five seconds, with a minimum of one second. Failed requests trigger backoff;
 cycles do not overlap. See [refresh behavior](REFRESH_PERFORMANCE.md).
 
-For **Manual GGAL spot**, enter a positive ARS/share reference before starting.
-Use **Apply price** during monitoring to change the next refresh's input. This
-mode skips PPI and uses only Primary credentials. The same reference is used on
-both sides; spot spread and depth are unknown. Full assessment is unavailable
-with manual spot.
+Select **Manual GGAL spot** before starting or while monitoring. Enter positive
+**Bid** and **Ask** prices in ARS/share, with bid no greater than ask. Click
+**Apply bid/ask** or press **Enter** to apply both prices on the next refresh.
+Blank fields start with the latest spot bid and ask when available.
+Uncheck the option to return to PPI spot on the next refresh (or synthetic spot
+in demo). PPI spot requires PPI credentials; manual mode uses only Primary
+credentials. The cards and exported snapshot preserve both entered prices;
+cash-carry implied yield uses the spot ask. Manual quotes provide no verified
+market depth or freshness. Full assessment is unavailable with manual spot.
 
 **Book details** shows normalized depth and diagnostics for the last received
 snapshot. **Export snapshot** saves the reports as JSON. Receipt time records

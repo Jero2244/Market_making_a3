@@ -11,7 +11,7 @@ from unittest.mock import Mock, patch
 
 from market_making.ppi import cli, monitor
 from market_making.ppi.client import PPIError
-from market_making.ppi.models import parse_book
+from market_making.ppi.models import ManualSpotQuote, parse_book
 from market_making.ppi.monitor_config import load_watch_config, validate_config
 
 NOW = datetime(2026, 10, 7, 12, tzinfo=timezone.utc)
@@ -61,20 +61,47 @@ class QuoteOutputTests(unittest.TestCase):
                 patch.object(monitor, 'RemarketsClient', return_value=primary):
             session = monitor.WatchSession(Mock(ready=False), Mock(ready=True))
             try:
-                first = session.read(cfg, 1, manual_spot=100)
-                second = session.read(cfg, 2, manual_spot=105)
+                first = session.read(cfg, 1, manual_spot=ManualSpotQuote(99, 100))
+                second = session.read(cfg, 2, manual_spot=ManualSpotQuote(103, 105))
             finally:
                 session.close()
         self.assertGreater(first[0]['quote_summary']['implied_yield_tna'],
                            second[0]['quote_summary']['implied_yield_tna'])
         self.assertEqual(second[0]['books']['spot']['provider'], 'manual')
+        self.assertEqual(second[0]['books']['spot']['bids'][0]['price'], 103)
         self.assertEqual(second[0]['books']['spot']['offers'][0]['price'], 105)
         self.assertIsNone(second[0]['books']['spot']['source_timestamp'])
         self.assertFalse(second[0]['executable'])
 
+    def test_manual_bid_ask_yield_uses_ask_and_preserves_both_prices(self):
+        cfg = config()
+        cfg['quote_only'] = True
+        reports = [self.report(cfg, spot=monitor.manual_spot_book(ManualSpotQuote(bid, ask)))
+                   for bid, ask in ((98, 101), (100, 101), (100, 103))]
+        self.assertEqual(reports[0]['quote_summary']['implied_yield_tna'],
+                         reports[1]['quote_summary']['implied_yield_tna'])
+        self.assertAlmostEqual(reports[0]['quote_summary']['implied_yield_tna'],
+                               (110 / 101 - 1) * 365 / 23 * 100)
+        self.assertGreater(reports[1]['quote_summary']['implied_yield_tna'],
+                           reports[2]['quote_summary']['implied_yield_tna'])
+        self.assertEqual(reports[2]['books']['spot']['bids'][0]['price'], 100)
+        self.assertEqual(reports[2]['books']['spot']['offers'][0]['price'], 103)
+        self.assertEqual(reports[2]['books']['spot']['bids'][0]['quantity'], 0)
+        json.dumps(reports, allow_nan=False)
+
+    def test_manual_bid_ask_rejects_invalid_prices(self):
+        for bid, ask in ((0, 100), (100, 0), (-1, 100), (100, -1),
+                         (float('nan'), 100), (100, float('nan')),
+                         (float('inf'), 100), (100, float('inf')),
+                         (True, 100), (100, True), (101, 100)):
+            with self.subTest(bid=bid, ask=ask), self.assertRaises(ValueError):
+                ManualSpotQuote(bid, ask)
+        book = monitor.manual_spot_book(ManualSpotQuote(100, 100))
+        self.assertEqual(book.bid.price, book.ask.price)
+
     def test_manual_reference_does_not_claim_full_assessment_depth(self):
         cfg = config()
-        report = monitor.evaluate(monitor.manual_spot_book(100), parse_book(raw_book(110, 111)),
+        report = monitor.evaluate(monitor.manual_spot_book(ManualSpotQuote(99, 100)), parse_book(raw_book(110, 111)),
                                   cfg, cfg['futures'][0], now=NOW, manual_check=True)
         self.assertIsNotNone(report['quote_summary']['implied_yield_tna'])
         self.assertIn('manual_spot_reference_no_executable_spread_or_depth', report['blockers'])

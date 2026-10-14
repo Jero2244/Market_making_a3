@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch
 
 from market_making.desktop.controller import MonitorController, WatchOptions, default_env_file
 from market_making.ppi import monitor
+from market_making.ppi.models import ManualSpotQuote
 
 
 class DesktopControllerTests(unittest.TestCase):
@@ -32,6 +33,7 @@ class DesktopControllerTests(unittest.TestCase):
         WatchOptions(interval=1).validate()
         WatchOptions(demo=True, interval=1).validate()
         WatchOptions(caucion_tna=0).validate()
+        WatchOptions(manual_spot=ManualSpotQuote(100, 101)).validate()
 
     def test_manual_price_update_is_validated(self):
         controller = MonitorController()
@@ -41,6 +43,24 @@ class DesktopControllerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             controller.set_manual_spot(float('nan'))
         self.assertEqual(controller.get_manual_spot(), 105)
+
+    def test_manual_bid_ask_is_used_by_worker_without_ppi_credentials(self):
+        controller = MonitorController()
+        quote = ManualSpotQuote(100, 102)
+
+        def one_cycle(*args, **kwargs):
+            controller._stop.wait = lambda _: True
+            self.assertEqual(kwargs['manual_spot'], quote)
+            return monitor.demo_cycle(1, manual_spot=kwargs['manual_spot'])
+
+        with patch.object(monitor, 'load_credentials', return_value=Mock(ready=False)), \
+                patch.object(monitor, 'load_primary_credentials', return_value=Mock(ready=True)), \
+                patch.object(monitor, 'live_cycle', side_effect=one_cycle):
+            self.assertTrue(controller.start(WatchOptions(manual_spot=quote)))
+            events = self.collect(controller)
+        reports = [payload for kind, payload in events if kind == 'reports'][0]
+        self.assertEqual(reports[0]['books']['spot']['bids'][0]['price'], 100)
+        self.assertEqual(reports[0]['books']['spot']['offers'][0]['price'], 102)
 
     def test_demo_never_loads_credentials_or_network(self):
         controller = MonitorController()

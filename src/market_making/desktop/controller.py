@@ -9,7 +9,7 @@ import threading
 
 from market_making.paths import PROJECT_ROOT
 from market_making.ppi import monitor
-from market_making.ppi.models import timestamp
+from market_making.ppi.models import ManualSpotQuote, timestamp
 
 
 def default_env_file():
@@ -32,10 +32,10 @@ class WatchOptions:
     env_file: Path | None = None
     watch_config: Path | None = None
     manual_check: bool = False
-    manual_spot: float | None = None
+    manual_spot: ManualSpotQuote | float | None = None
 
     def validate(self):
-        if self.manual_spot is not None:
+        if self.manual_spot is not None and not isinstance(self.manual_spot, ManualSpotQuote):
             monitor.number(self.manual_spot)
         if not math.isfinite(self.interval) or not 1 <= self.interval <= 86400:
             raise ValueError("Use a refresh interval between 1 and 86400 seconds.")
@@ -57,7 +57,7 @@ class MonitorController:
         self._price_lock = threading.Lock()
 
     def set_manual_spot(self, price):
-        if price is not None:
+        if price is not None and not isinstance(price, ManualSpotQuote):
             monitor.number(price)
         with self._price_lock:
             self._manual_spot = price
