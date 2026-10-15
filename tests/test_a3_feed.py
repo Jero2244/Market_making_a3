@@ -1,22 +1,20 @@
 """Public viewer protocol, exact contract mapping, and snapshot refresh tests."""
 import copy
 import json
+from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
 
 import websocket
 from market_making.comparison import a3
-from market_making.comparison.models import A3_IDS, SYMBOLS
+from market_making.comparison.models import SYMBOLS
 
 # Public after-hours sample captured from the viewer on 2026-10-14.
 FRAME = "M:rx_DUAL_GGAL_OCT26|402552|6|5812|5820|9|5820|2026-10-14T19:59:32Z|4024|2367439500|402400|5793|5985|5939|9908|5820|2026-10-14|5820|2026-10-14|6006|2026-10-13"
 
 
 def reference():
-    return {"securities": [dict(symbol=symbol, id=A3_IDS[symbol], currency="ARS", cfiCode="FXXXSX",
-                                factor="1", minPriceIncrement="1", contractMultiplier="100",
-                                maturityDate="20261030" if index == 0 else "20261230")
-                            for index, symbol in enumerate(SYMBOLS)]}
+    return json.loads((Path(__file__).parent / "fixtures" / "a3_comparison_contracts.json").read_text())
 
 
 class A3FeedTests(unittest.TestCase):
@@ -37,6 +35,19 @@ class A3FeedTests(unittest.TestCase):
         self.assertIsNone(q.bid)
         self.assertIsNone(q.ask)
         self.assertFalse(q.problems)
+
+    def test_rfx20_and_wti_frames_keep_their_prices_and_identity(self):
+        frames = []
+        for a3_id, bid, ask in (("rx_DUAL_RFX20_OCT26", "620000", "620100"),
+                                ("rx_DUAL_WTI_NOV26", "70.12", "70.13")):
+            fields = FRAME.split("|")
+            fields[0], fields[3], fields[4] = "M:" + a3_id, bid, ask
+            frames.append("|".join(fields))
+        rfx20, wti = a3.decode_frame(json.dumps(frames), now=100)
+        self.assertEqual((rfx20.symbol, rfx20.bid.price, rfx20.ask.price),
+                         ("RFX20/OCT26", 620000, 620100))
+        self.assertEqual((wti.symbol, wti.bid.price, wti.ask.price), ("WTI/NOV26", 70.12, 70.13))
+        self.assertFalse(rfx20.problems or wti.problems)
 
     def test_invalid_numbers_and_crossed_quotes_disable_contract(self):
         for value in ("nan", "inf", "-1", "bad", "0"):
@@ -65,6 +76,9 @@ class A3FeedTests(unittest.TestCase):
         result = a3.catalog(reference())
         self.assertEqual(set(result), set(SYMBOLS))
         self.assertEqual((result[SYMBOLS[0]].tick, result[SYMBOLS[0]].multiplier), (1, 100))
+        self.assertEqual((result["RFX20/OCT26"].tick, result["RFX20/OCT26"].multiplier), (100, 1))
+        self.assertEqual((result["WTI/NOV26"].tick, result["WTI/NOV26"].multiplier,
+                          result["WTI/NOV26"].currency), (.01, 10, "USG"))
         for field, value in (("id", "wrong"), ("currency", "USD"), ("factor", "100"),
                              ("contractMultiplier", "1"), ("minPriceIncrement", "nan"),
                              ("cfiCode", "OCEFXS"), ("maturityDate", "20271030")):
@@ -76,6 +90,22 @@ class A3FeedTests(unittest.TestCase):
         data["securities"].append(copy.deepcopy(data["securities"][0]))
         with self.assertRaises(a3.FeedError):
             a3.catalog(data)
+
+    def test_new_contract_metadata_must_match_and_missing_contract_is_named(self):
+        for symbol in ("RFX20/OCT26", "WTI/NOV26"):
+            for field, value in (("currency", "USD"), ("contractMultiplier", "100"),
+                                 ("factor", "10"), ("maturityDate", "20261230"),
+                                 ("isProduct", True)):
+                with self.subTest(symbol=symbol, field=field):
+                    data = reference()
+                    row = next(row for row in data["securities"] if row["symbol"] == symbol)
+                    row[field] = value
+                    with self.assertRaises(a3.FeedError):
+                        a3.catalog(data)
+            data = reference()
+            data["securities"] = [row for row in data["securities"] if row["symbol"] != symbol]
+            with self.assertRaisesRegex(a3.FeedError, symbol):
+                a3.catalog(data)
 
     def test_repeated_subscription_reobserves_equal_quotes(self):
         client = a3.Client(session=Mock())
@@ -93,7 +123,8 @@ class A3FeedTests(unittest.TestCase):
             subscriptions = [call.args[0] for call in client.ws.send.call_args_list if call.args[0] != "ping"]
             self.assertEqual(len(subscriptions), 2)
             self.assertEqual(json.loads(subscriptions[0])["topics"],
-                             ["md.rx_DUAL_GGAL_OCT26", "md.rx_DUAL_GGAL_DIC26"])
+                             ["md.rx_DUAL_GGAL_OCT26", "md.rx_DUAL_GGAL_DIC26",
+                              "md.rx_DUAL_RFX20_OCT26", "md.rx_DUAL_WTI_NOV26"])
         finally:
             client.close()
 

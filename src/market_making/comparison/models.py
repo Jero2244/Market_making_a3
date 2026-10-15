@@ -8,19 +8,43 @@ from market_making.ppi.models import Level, number, timestamp
 from market_making.ppi.remarkets import parse_snapshot
 
 
-SYMBOLS = ("GGAL/OCT26", "GGAL/DIC26")
-A3_IDS = dict(zip(SYMBOLS, ("rx_DUAL_GGAL_OCT26", "rx_DUAL_GGAL_DIC26")))
-
-
 @dataclass(frozen=True)
 class Instrument:
     symbol: str
     a3_id: str
     tick: float = 1
     multiplier: float = 100
+    currency: str = "ARS"
+    unit: str = "share"
+    maturity_date: str = "20261030"
+
+    @property
+    def display_currency(self):
+        # A3 uses USG for its dollar-denominated WTI contract.
+        return "USD" if self.currency == "USG" else self.currency
+
+    @property
+    def price_unit(self):
+        return "points" if self.unit == "point" else f"{self.display_currency}/{self.unit}"
+
+    @property
+    def contract_size(self):
+        if self.unit == "point":
+            return f"{self.display_currency} {self.multiplier:g} per point per contract"
+        return f"{self.multiplier:g} {self.unit}s per contract"
 
 
-DEFAULT_INSTRUMENTS = {symbol: Instrument(symbol, A3_IDS[symbol]) for symbol in SYMBOLS}
+# Explicit mappings checked against A3's public reference data on 2026-10-15.
+DEFAULT_INSTRUMENTS = {instrument.symbol: instrument for instrument in (
+    Instrument("GGAL/OCT26", "rx_DUAL_GGAL_OCT26"),
+    Instrument("GGAL/DIC26", "rx_DUAL_GGAL_DIC26", maturity_date="20261230"),
+    Instrument("RFX20/OCT26", "rx_DUAL_RFX20_OCT26", tick=100, multiplier=1,
+               unit="point"),
+    Instrument("WTI/NOV26", "rx_DUAL_WTI_NOV26", tick=.01, multiplier=10,
+               currency="USG", unit="barrel", maturity_date="20261117"),
+)}
+SYMBOLS = tuple(DEFAULT_INSTRUMENTS)
+A3_IDS = {symbol: instrument.a3_id for symbol, instrument in DEFAULT_INSTRUMENTS.items()}
 
 
 @dataclass(frozen=True)

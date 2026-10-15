@@ -48,8 +48,9 @@ after cleanup. Closing the app cancels its background work.
 ## Real vs reMarkets
 
 Choose **Real vs reMarkets** and click **Start comparison**. This tab compares
-`GGAL/OCT26` and `GGAL/DIC26` in the public A3 viewer with those same futures in
-the simulated reMarkets order book. It uses `PRIMARY_USER` and
+`GGAL/OCT26`, `GGAL/DIC26`, `RFX20/OCT26` and `WTI/NOV26` in the public A3 viewer
+with those same futures in the simulated reMarkets order book. Scroll to see
+all four contract cards. It uses `PRIMARY_USER` and
 `PRIMARY_PASSWORD` from the credentials file in Settings; PPI is not required.
 
 A3 updates arrive through the viewer's anonymous WebSocket. Subscription
@@ -65,10 +66,23 @@ The two directions use executable reMarkets sides and real-market references:
 - Buy difference = A3 bid minus reMarkets ask.
 - Sell difference = reMarkets bid minus A3 ask.
 - Percentage = difference divided by the relevant A3 reference price × 100.
-- Gross difference per contract = difference × shares per contract.
+- Gross difference per contract = price difference × contract multiplier.
 
-The default minimum is **one tick**. A3 metadata supplies the tick and validates
-the contract's expiry, currency and 100-share multiplier. **Maximum observation
+The cards use each contract's own units:
+
+| Contract | Price unit | Tick | Contract multiplier | Gross difference currency |
+| --- | --- | --- | --- | --- |
+| `GGAL/OCT26`, `GGAL/DIC26` | ARS/share | 1 | 100 shares | ARS |
+| `RFX20/OCT26` | Index points | 100 | ARS 1 per point | ARS |
+| `WTI/NOV26` | USD/barrel | 0.01 | 10 barrels | USD |
+
+The default minimum is **one tick**, applied in each contract's units. A3
+metadata supplies the tick and validates each contract's expiry, currency and
+multiplier. WTI's A3 currency code `USG` is displayed as USD; the tab does not
+convert differences into pesos. These mappings were checked against the
+[public reference data](https://visordeprecios.a3mercados.com.ar/api/v2/ref-data)
+on 15 October 2026, including RFX20's 30 October and WTI's 17 November expiry.
+**Maximum observation
 age** defaults to **10 seconds**. Edit these controls and click **Apply** to
 change comparisons without restarting. A zero minimum still requires a strictly
 positive difference. Missing sides disable their affected direction; malformed
@@ -112,6 +126,11 @@ future symbols are included: GGAL stock, GGAL options and all other instruments
 are excluded. Additional GGAL expiries appear as rows after checking instrument
 identity, ARS currency and the configured shares per contract against reMarkets.
 The current import limit is 24 distinct GGAL expiries.
+
+Detailed risk reports may identify those same futures by internal references
+such as `GGAL102026`. The import matches these using the position summary's
+explicit `instrument.symbolReference`, then checks quantities against that
+summary. Conflicting or duplicate references stop the import.
 
 Account rows are read-only snapshots. **Use as manual simulation** copies the
 loaded rows into editable inputs. Switching between sources otherwise preserves
@@ -187,6 +206,6 @@ python -m market_making.desktop.app --self-test build/source_gui_check.json
 ```
 
 The isolated build environment and executable are generated locally and ignored
-by Git. The widget check exercises both tabs, demo states, Start/Stop, shared
+by Git. The widget check exercises all three tabs, demo states, Start/Stop, shared
 contract defaults, scenario P/L, distributions and cancellation, without live
 broker requests. See [data limitations](DATA_LIMITATIONS.md).

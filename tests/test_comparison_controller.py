@@ -12,6 +12,7 @@ from market_making.comparison.models import DEFAULT_INSTRUMENTS, SYMBOLS
 from market_making.ppi import remarkets
 from market_making.ppi.client import PPIError
 from test_real_comparison import quotes, raw_snapshot
+from test_ppi_watch_sessions import response
 
 
 class IdleA3:
@@ -51,7 +52,9 @@ class ControllerTests(unittest.TestCase):
                 patch.object(a3.Client, "connect", side_effect=AssertionError("network")):
             self.assertTrue(controller.start(Options(demo=True)))
             deadline = time.monotonic() + 2
-            while controller.snapshot()["rows"][0]["A3"] is None and time.monotonic() < deadline:
+            # The worker publishes each source separately; wait for both.
+            while (any(controller.snapshot()["rows"][0][source] is None for source in ("A3", "reMarkets"))
+                   and time.monotonic() < deadline):
                 time.sleep(.005)
             self.assertTrue(controller.snapshot()["rows"][0]["differences"][0].qualifies)
             controller.settings(3, 10)
@@ -76,6 +79,40 @@ class ControllerTests(unittest.TestCase):
         controller._publish(2, "A3", (quotes()[0],))
         self.assertEqual(controller.quotes["A3"], {})
 
+    def test_demo_phases_apply_to_all_contracts_in_their_own_ticks(self):
+        for cycle in range(1, 7):
+            controller = ComparisonController(clock=lambda: 100)
+            controller._threads = [Mock(is_alive=Mock(return_value=True))]
+            for quote in demo_quotes(cycle, 100):
+                controller._publish(0, quote.source, (quote,))
+            rows = controller.snapshot()["rows"]
+            self.assertEqual([row["symbol"] for row in rows],
+                             ["GGAL/OCT26", "GGAL/DIC26", "RFX20/OCT26", "WTI/NOV26"])
+            for row in rows:
+                with self.subTest(cycle=cycle, symbol=row["symbol"]):
+                    buy, sell = row["differences"]
+                    self.assertEqual(buy.qualifies, cycle == 1)
+                    self.assertEqual(sell.qualifies, cycle == 2)
+                    if cycle == 1:
+                        self.assertEqual(buy.ticks, 2)
+                    if cycle == 2:
+                        self.assertEqual(sell.ticks, 3)
+
+    def test_primary_poll_reads_all_four_contracts_and_keeps_each_quote(self):
+        controller = ComparisonController(clock=lambda: 100)
+        client = Mock()
+        client.snapshot.side_effect = lambda instrument, **_: raw_snapshot(instrument["symbol"])
+        controller.remarkets_factory = Mock(return_value=client)
+        with patch.object(remarkets, "load_credentials", return_value=Mock(ready=True)), \
+                patch.object(controller._stop, "wait", return_value=True):
+            controller._simulated(0, controller._stop, Options(env_file=Path("unused")))
+        self.assertIsNone(controller.error)
+        self.assertEqual([call.args[0]["symbol"] for call in client.snapshot.call_args_list],
+                         ["GGAL/OCT26", "GGAL/DIC26", "RFX20/OCT26", "WTI/NOV26"])
+        self.assertTrue(all(row["reMarkets"].symbol == row["symbol"]
+                            for row in controller.snapshot()["rows"]))
+        client.close.assert_called_once()
+
     def test_failure_immediately_invalidates_source_and_fatal_cancels_both(self):
         controller = ComparisonController()
         for quote in quotes():
@@ -90,6 +127,26 @@ class ControllerTests(unittest.TestCase):
         self.assertTrue(controller._stop.is_set())
         client.cancel.assert_called_once()
         self.assertFalse(controller.quotes["reMarkets"])
+
+    def test_four_contract_cycle_has_budget_for_initial_login_and_one_401_recovery(self):
+        controller = ComparisonController(clock=lambda: 100)
+        credentials = remarkets.Credentials(dict.fromkeys(remarkets.KEYS, "private-comparison-credential"))
+        session = Mock()
+        session.request.side_effect = [response(token="initial-access"), response(status=401),
+                                       response(token="renewed-access")] + [
+            response(raw_snapshot(symbol).raw) for symbol in SYMBOLS]
+        client = remarkets.Client(credentials, live=True, session=session)
+        controller.remarkets_factory = Mock(return_value=client)
+        with patch.object(remarkets, "load_credentials", return_value=credentials), \
+                patch.object(controller._stop, "wait", return_value=True):
+            controller._simulated(0, controller._stop, Options(env_file=Path("unused")))
+        self.assertIsNone(controller.error)
+        self.assertEqual(session.request.call_count, 7)
+        self.assertEqual([call.kwargs["params"]["symbol"] for call in session.request.call_args_list
+                          if call.args[0] == "GET"], [SYMBOLS[0], *SYMBOLS])
+        self.assertTrue(all(row["reMarkets"] is not None and not row["reMarkets"].problems
+                            for row in controller.snapshot()["rows"]))
+        self.assertEqual(client.remaining, 0)
 
     def test_stale_quote_expires_without_another_network_event(self):
         clock = [100]

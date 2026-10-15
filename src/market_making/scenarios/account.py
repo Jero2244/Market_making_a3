@@ -122,6 +122,21 @@ class AccountSnapshot:
 
 def normalize_account(account, positions_payload, details_payload, report_payload, instruments):
     summaries, ignored = position_rows(positions_payload)
+    # Risk reports can use internal codes (GGAL102026), while the summary and
+    # instrument API use trading symbols (GGAL/OCT26). Join only through the
+    # explicit symbolReference supplied by that same position summary.
+    references = {symbol: symbol for symbol in summaries}
+    for symbol, (_, summary) in summaries.items():
+        instrument = summary.get("instrument", {})
+        if not isinstance(instrument, dict):
+            raise AccountDataError("A GGAL position has invalid instrument references.")
+        reference = instrument.get("symbolReference")
+        if reference is None:
+            continue
+        if (not isinstance(reference, str) or not re.fullmatch(r"[A-Za-z0-9_./-]{1,128}", reference)
+                or references.get(reference, symbol) != symbol):
+            raise AccountDataError("reMarkets returned conflicting GGAL position references.")
+        references[reference] = symbol
     details = _ok(details_payload).get("detailedPosition")
     report = _ok(report_payload).get("accountData")
     if (not isinstance(details, dict) or details.get("account") != account
@@ -132,9 +147,12 @@ def normalize_account(account, positions_payload, details_payload, report_payloa
     for kind, group in details["report"].items():
         if not isinstance(group, dict):
             raise AccountDataError("reMarkets returned an invalid detailed position report.")
-        for symbol, instrument in group.items():
-            if symbol not in summaries:
+        for reference, instrument in group.items():
+            symbol = references.get(reference)
+            if symbol is None:
                 continue
+            if symbol in detailed_quantities:
+                raise AccountDataError("reMarkets returned duplicate GGAL detailed position references.")
             if kind != "FUTURE" or not isinstance(instrument, dict):
                 raise AccountDataError("A GGAL position was not classified as a future by reMarkets.")
             rows = instrument.get("detailedPositions")
@@ -144,6 +162,9 @@ def normalize_account(account, positions_payload, details_payload, report_payloa
             for row in rows:
                 if not isinstance(row, dict) or row.get("contractType") != "FUTURE":
                     raise AccountDataError("A GGAL position has incompatible contract details.")
+                row_reference = row.get("symbolReference", reference)
+                if not isinstance(row_reference, str) or references.get(row_reference) != symbol:
+                    raise AccountDataError("reMarkets returned conflicting GGAL detailed position references.")
                 if row.get("currency", "ARS") != "ARS" or _number(row.get("priceConversionFactor", 1)) != 1:
                     raise AccountDataError("A GGAL account price uses incompatible currency or price units.")
                 current = _number(row.get("marketPrice"), positive=True)

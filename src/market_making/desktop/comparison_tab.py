@@ -4,6 +4,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from market_making.comparison.controller import ComparisonController, Options
+from market_making.comparison.models import DEFAULT_INSTRUMENTS
 from market_making.contracts import BA
 
 BG = "#f3f5f9"
@@ -23,7 +24,7 @@ class ComparisonTab(ttk.Frame):
         self.controller = ComparisonController()
         self.min_ticks = tk.StringVar(value="1")
         self.max_age = tk.StringVar(value="10")
-        self.notice = tk.StringVar(value="Start to compare real GGAL futures with the reMarkets book.")
+        self.notice = tk.StringVar(value="Start to compare real GGAL, RFX20 and WTI futures with the reMarkets book.")
         self.sources = tk.StringVar(value="A3: Stopped   |   reMarkets: Stopped")
         self.summary = tk.StringVar(value="No qualifying difference")
         self.rows = {}
@@ -60,10 +61,10 @@ class ComparisonTab(ttk.Frame):
         self.banner = tk.Label(body, textvariable=self.summary, background=BG, foreground=INK,
                                font=("Segoe UI", 13, "bold"), anchor="w", padx=8, pady=8)
         self.banner.pack(fill="x", pady=(8, 4))
-        for symbol in ("GGAL/OCT26", "GGAL/DIC26"):
+        for symbol, spec in DEFAULT_INSTRUMENTS.items():
             card = ttk.Frame(body, style="Card.TFrame", padding=12)
             card.pack(fill="x", pady=7)
-            title = tk.StringVar(value=symbol + " / ARS per share / 100 shares per contract")
+            title = tk.StringVar(value=f"{symbol} / {spec.price_unit} / {spec.contract_size} / tick {spec.tick:g}")
             ttk.Label(card, textvariable=title, style="CardTitle.TLabel").pack(anchor="w", pady=(0, 8))
             columns = ("source", "bid", "bid_size", "ask", "ask_size", "last", "age")
             table = ttk.Treeview(card, columns=columns, show="headings", height=2, selectmode="none")
@@ -159,7 +160,7 @@ class ComparisonTab(ttk.Frame):
         for row in state["rows"]:
             widgets = self.rows[row["symbol"]]
             spec = row["instrument"]
-            widgets["title"].set(f"{row['symbol']} / ARS per share / {spec.multiplier:g} shares per contract / tick {spec.tick:g}")
+            widgets["title"].set(f"{row['symbol']} / {spec.price_unit} / {spec.contract_size} / tick {spec.tick:g}")
             for source in ("A3", "reMarkets"):
                 quote = row[source]
                 if quote is None:
@@ -189,17 +190,17 @@ class ComparisonTab(ttk.Frame):
                 if difference.price is None:
                     text = difference.side + " / " + difference.reason
                 else:
-                    text = (f"{difference.side} in reMarkets  |  {fmt(difference.price, signed=True)} ARS/share"
+                    text = (f"{difference.side} in reMarkets  |  {fmt(difference.price, signed=True)} {spec.price_unit}"
                             f"  |  {fmt(difference.ticks, signed=True)} ticks  |  {fmt(difference.percent, signed=True)}%"
-                            f"  |  {fmt(difference.per_contract, signed=True)} ARS/contract")
+                            f"  |  {fmt(difference.per_contract, signed=True)} {spec.display_currency}/contract")
                 variable.set(text)
                 label.configure(background=GREEN_BG if difference.qualifies else "white",
                                 foreground="#127454" if difference.qualifies else MUTED)
                 if difference.qualifies:
-                    qualifying.append((difference.ticks, row["symbol"], difference))
+                    qualifying.append((difference.ticks, row["symbol"], difference, spec.display_currency))
         if qualifying:
-            _, symbol, best = max(qualifying, key=lambda item: item[0])
-            self.summary.set(f"{best.side} {symbol} / {fmt(best.ticks)} ticks / {fmt(best.per_contract, signed=True)} ARS per contract")
+            _, symbol, best, currency = max(qualifying, key=lambda item: item[0])
+            self.summary.set(f"{best.side} {symbol} / {fmt(best.ticks)} ticks / {fmt(best.per_contract, signed=True)} {currency} per contract")
         else:
             self.summary.set("No qualifying difference" if state["active"] else "Comparison stopped")
         self.banner.configure(background=GREEN_BG if qualifying else BG)

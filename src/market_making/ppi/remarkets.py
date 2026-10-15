@@ -145,10 +145,12 @@ class Client:
     def cancel(self):
         self._transport.cancel()
 
-    def begin_watch_cycle(self):
+    def begin_watch_cycle(self, *, quote_count=2):
+        if type(quote_count) is not int or not 1 <= quote_count <= 29:
+            raise PPIError("forbidden_parameters")
         if self._transport.expired:
             raise PPIError("response_limit_exceeded")
-        self.remaining = 5  # Two quotes plus auth and one bounded 401 recovery.
+        self.remaining = quote_count + 3  # Quotes, initial auth and one bounded 401 recovery.
         self.deadline = time.monotonic() + 60
 
     def ensure_authenticated(self):

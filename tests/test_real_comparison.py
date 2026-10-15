@@ -48,6 +48,29 @@ class ComparisonTests(unittest.TestCase):
         self.assertEqual((sell.remarkets_quantity, sell.reference_quantity), (7, 9))
         self.assertTrue(sell.qualifies)
 
+    def test_rfx20_and_wti_tick_boundaries_and_contract_differences(self):
+        for symbol, real_bid, real_ask, sim_ask, sim_sell_bid, tick, contract_difference in (
+                ("RFX20/OCT26", 620100, 620200, 620000, 620300, 100, 100),
+                ("WTI/NOV26", 70.13, 70.14, 70.12, 70.15, .01, .1)):
+            with self.subTest(symbol=symbol):
+                real = replace(quotes()[0], symbol=symbol, bid=Level(real_bid, 6),
+                               ask=Level(real_ask, 9))
+                simulated = remarkets_quote(raw_snapshot(symbol, bid=sim_ask - tick, ask=sim_ask),
+                                            symbol, now=100, receipt=RECEIPT)
+                self.assertFalse(simulated.problems)
+                buy, _ = compare(DEFAULT_INSTRUMENTS[symbol], real, simulated, now=100)
+                self.assertTrue(buy.qualifies)
+                self.assertEqual(buy.ticks, 1)
+                self.assertEqual(buy.per_contract, contract_difference)
+                self.assertFalse(compare(DEFAULT_INSTRUMENTS[symbol], real, simulated,
+                                         now=100, min_ticks=1.01)[0].qualifies)
+                simulated = replace(simulated, bid=Level(sim_sell_bid, 4),
+                                    ask=Level(sim_sell_bid + tick, 3))
+                _, sell = compare(DEFAULT_INSTRUMENTS[symbol], real, simulated, now=100)
+                self.assertTrue(sell.qualifies)
+                self.assertAlmostEqual(sell.ticks, 1)
+                self.assertAlmostEqual(sell.per_contract, contract_difference)
+
     def test_decimal_tick_boundary_and_zero_minimum(self):
         spec = replace(DEFAULT_INSTRUMENTS[SYMBOL], tick=.1)
         real, sim = quotes()

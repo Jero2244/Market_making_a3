@@ -23,8 +23,9 @@ GGAL Desk is useful if you want to:
 - Try the interface offline before setting up broker credentials.
 
 The desktop workflow and executable build target Windows. Price monitors
-currently focus on October and December 2026 GGAL futures; account imports can
-also include other validated GGAL expiries. Automated trading and the original
+cover October and December 2026 GGAL futures, plus `RFX20/OCT26` and `WTI/NOV26`
+in Real vs reMarkets; account imports can also include other validated GGAL
+expiries. Automated trading and the original
 market-making experiments are preserved separately in [the archive](archive/README.md).
 
 ## Recent changes — 14 October 2026
@@ -114,13 +115,17 @@ missing sessions are not filled.
 ### Real vs reMarkets: compare the same futures across sources
 
 Click **Start comparison** to compare real A3 viewer quotes with simulated
-reMarkets books for October and December 2026. The displayed directions are:
+reMarkets books for `GGAL/OCT26`, `GGAL/DIC26`, `RFX20/OCT26` and `WTI/NOV26`.
+The displayed directions are:
 
 - **Buy difference:** A3 bid − reMarkets ask.
 - **Sell difference:** reMarkets bid − A3 ask.
 
-The screen shows differences in ARS per share, ticks, percent and gross ARS per
-contract, plus quoted quantities. The default highlight threshold is one tick;
+The screen shows differences in each contract's price units, ticks, percent
+and gross currency per contract, plus quoted quantities. GGAL uses ARS/share
+and 100 shares per contract; RFX20 uses index points and ARS 1 per point per
+contract; WTI uses USD/barrel and 10 barrels per contract. WTI differences stay
+in USD. The default highlight threshold is one tick;
 the default maximum observation age is ten seconds. Edit either control and
 click **Apply** without restarting.
 

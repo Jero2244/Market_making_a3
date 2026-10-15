@@ -1,0 +1,10 @@
+{
+  "captured_at": "2026-10-15",
+  "source": "https://visordeprecios.a3mercados.com.ar/api/v2/ref-data",
+  "securities": [
+    {"symbol": "GGAL/OCT26", "id": "rx_DUAL_GGAL_OCT26", "currency": "ARS", "cfiCode": "FXXXSX", "factor": "1", "minPriceIncrement": "1", "contractMultiplier": "100", "maturityDate": "20261030", "isProduct": false},
+    {"symbol": "GGAL/DIC26", "id": "rx_DUAL_GGAL_DIC26", "currency": "ARS", "cfiCode": "FXXXSX", "factor": "1", "minPriceIncrement": "1", "contractMultiplier": "100", "maturityDate": "20261230", "isProduct": false},
+    {"symbol": "RFX20/OCT26", "id": "rx_DUAL_RFX20_OCT26", "currency": "ARS", "cfiCode": "FXXXSX", "factor": "1", "minPriceIncrement": "100", "contractMultiplier": "1", "maturityDate": "20261030", "isProduct": false},
+    {"symbol": "WTI/NOV26", "id": "rx_DUAL_WTI_NOV26", "currency": "USG", "cfiCode": "FXXXSX", "factor": "1", "minPriceIncrement": "0.01", "contractMultiplier": "10", "maturityDate": "20261117", "isProduct": false}
+  ]
+}

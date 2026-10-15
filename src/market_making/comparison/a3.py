@@ -1,5 +1,6 @@
 """Anonymous A3 viewer feed. No login, account, or order routes are used."""
 from datetime import datetime, timezone
+from dataclasses import replace
 import json
 import math
 import threading
@@ -10,7 +11,7 @@ import websocket
 
 from market_making.ppi.deadline import DeadlineTransport
 from market_making.ppi.models import Level, timestamp
-from .models import A3_IDS, SYMBOLS, Instrument, Quote
+from .models import A3_IDS, DEFAULT_INSTRUMENTS, SYMBOLS, Quote
 
 ORIGIN = "https://visordeprecios.a3mercados.com.ar"
 WS_URL = "wss://visordeprecios.a3mercados.com.ar/ws?session_id=&conn_id="
@@ -39,22 +40,23 @@ def catalog(data):
         raise FeedError("A3 contract list changed. Restart or update the app.")
     result = {}
     for symbol in SYMBOLS:
+        expected = DEFAULT_INSTRUMENTS[symbol]
         matches = [row for row in data["securities"] if isinstance(row, dict)
                    and row.get("symbol") == symbol and row.get("id") == A3_IDS[symbol]]
         if len(matches) != 1:
-            raise FeedError("A3 could not uniquely match both GGAL contracts.")
+            raise FeedError(f"A3 could not uniquely match {symbol}.")
         row = matches[0]
         try:
             tick = decimal_field(row["minPriceIncrement"])
             multiplier = decimal_field(row["contractMultiplier"])
             factor = decimal_field(row["factor"])
-            if (row.get("currency") != "ARS" or row.get("cfiCode") != "FXXXSX"
-                    or row.get("isProduct") is True or factor != 1 or multiplier != 100
-                    or row.get("maturityDate") != {"GGAL/OCT26": "20261030", "GGAL/DIC26": "20261230"}[symbol]):
+            if (row.get("currency") != expected.currency or row.get("cfiCode") != "FXXXSX"
+                    or row.get("isProduct") is True or factor != 1 or multiplier != expected.multiplier
+                    or row.get("maturityDate") != expected.maturity_date):
                 raise ValueError
         except (KeyError, TypeError, ValueError, OverflowError):
             raise FeedError("A3 contract units or expiry changed. Check the contract mapping.") from None
-        result[symbol] = Instrument(symbol, A3_IDS[symbol], tick, multiplier)
+        result[symbol] = replace(expected, tick=tick, multiplier=multiplier)
     return result
 
 

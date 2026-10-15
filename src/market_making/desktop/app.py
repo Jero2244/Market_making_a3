@@ -575,6 +575,7 @@ def self_test(output):
                                            "start_stop": True, "live_minimum_seconds": 1,
                                            "live_default_seconds": 5, "futures_helper_tabs": 3,
                                            "real_vs_remarkets": True,
+                                           "comparison_contracts": list(app.comparison.rows),
                                            "manual_spot_during_monitoring": True,
                                            "manual_spot_switch_back": True,
                                            "manual_spot_bid_ask": True,
@@ -634,6 +635,7 @@ def comparison_widget_check(app):
     app.tabs.select(tab)
     app.root.update()
     assert tab.min_ticks.get() == "1" and tab.max_age.get() == "10"
+    assert tuple(tab.rows) == ("GGAL/OCT26", "GGAL/DIC26", "RFX20/OCT26", "WTI/NOV26")
     assert tab.viewport.cget("yscrollcommand")
     assert tab.winfo_reqheight() < 500  # Content can scroll at the minimum window size.
     for cycle in range(1, 7):
@@ -652,6 +654,17 @@ def comparison_widget_check(app):
         sell = tab.rows[SYMBOLS[0]]["directions"]["SELL"][1]
         assert (buy.cget("background") == "#dff3e9") == (cycle == 1)
         assert (sell.cget("background") == "#dff3e9") == (cycle == 2)
+        for symbol in SYMBOLS:
+            assert (tab.rows[symbol]["directions"]["BUY"][1].cget("background") == "#dff3e9") == (cycle == 1)
+            assert (tab.rows[symbol]["directions"]["SELL"][1].cget("background") == "#dff3e9") == (cycle == 2)
+        assert "points / ARS 1 per point per contract / tick 100" in tab.rows["RFX20/OCT26"]["title"].get()
+        assert "USD/barrel / 10 barrels per contract / tick 0.01" in tab.rows["WTI/NOV26"]["title"].get()
+        if cycle == 1:
+            assert "+200.00 points" in tab.rows["RFX20/OCT26"]["directions"]["BUY"][0].get()
+            assert "+0.02 USD/barrel" in tab.rows["WTI/NOV26"]["directions"]["BUY"][0].get()
+            assert "+0.20 USD/contract" in tab.rows["WTI/NOV26"]["directions"]["BUY"][0].get()
+            tab.render(dict(state, rows=[rows[-1]]))
+            assert "WTI/NOV26" in tab.summary.get() and tab.summary.get().endswith("USD per contract")
     tab.max_age.set("nan")
     assert not tab.apply_settings()
     tab.max_age.set("10")

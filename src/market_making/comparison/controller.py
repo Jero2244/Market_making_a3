@@ -1,6 +1,7 @@
 """Independent cancellable source workers and generation-bound observations."""
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from decimal import Decimal
 from pathlib import Path
 import math
 import threading
@@ -37,22 +38,25 @@ def demo_quotes(cycle, now):
     quotes = []
     phase = (cycle - 1) % 6
     for index, symbol in enumerate(SYMBOLS):
+        tick = Decimal(str(DEFAULT_INSTRUMENTS[symbol].tick))
         base = 5800 + index * 200
-        real_bid, real_ask = Level(base + 10, 8), Level(base + 12, 10)
-        sim_bid, sim_ask = Level(base + 9, 4), Level(base + 13, 6)
+        def price(offset):
+            return float((base + offset) * tick)
+        real_bid, real_ask = Level(price(10), 8), Level(price(12), 10)
+        sim_bid, sim_ask = Level(price(9), 4), Level(price(13), 6)
         if phase == 0:
-            sim_ask, sim_bid = Level(base + 8, 6), Level(base + 7, 4)
+            sim_ask, sim_bid = Level(price(8), 6), Level(price(7), 4)
         elif phase == 1:
-            sim_bid, sim_ask = Level(base + 15, 4), Level(base + 16, 6)
+            sim_bid, sim_ask = Level(price(15), 4), Level(price(16), 6)
         elif phase == 3:
             real_bid, sim_bid = None, None
         elif phase == 4:
-            real_bid = Level(base + 20, 8)
+            real_bid = Level(price(20), 8)
         receipt = datetime.now(timezone.utc)
         quotes.append(Quote(symbol, "A3", real_bid, real_ask, now - 20 if phase == 5 else now,
-                            receipt, base + 11, receipt))
+                            receipt, price(11), receipt))
         quotes.append(Quote(symbol, "reMarkets", sim_bid, sim_ask, now, receipt,
-                            base + 10, receipt, acquisition_seconds=.02))
+                            price(10), receipt, acquisition_seconds=.02))
     return tuple(quotes)
 
 
@@ -241,7 +245,7 @@ class ComparisonController:
                     self._register(client, stop)
                     while not stop.is_set():
                         cycle_started = self.clock()
-                        client.begin_watch_cycle()
+                        client.begin_watch_cycle(quote_count=len(SYMBOLS))
                         client.ensure_authenticated()
                         renewed = False
                         for symbol in SYMBOLS:

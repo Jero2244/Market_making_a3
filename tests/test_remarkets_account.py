@@ -41,6 +41,41 @@ class AccountNormalizationTests(unittest.TestCase):
                                  for p in result.positions], date(2026, 10, 14), assumed_tna=0)
         self.assertEqual(pnl.total_from_today, 3 * 100 * 175 - 4 * 100 * -60 + 2 * 100 * -600)
 
+    def test_risk_report_uses_internal_references_from_position_summary(self):
+        data = fixture()
+        futures = data["details"]["detailedPosition"]["report"]["FUTURE"]
+        for row, reference in zip(data["positions"]["positions"][:3],
+                                  ("GGAL102026", "GGAL122026", "GGAL062027")):
+            row["instrument"] = {"symbolReference": reference}
+            detail = futures.pop(row["symbol"])
+            detail["detailedPositions"][0]["symbolReference"] = reference
+            futures[reference] = detail
+        result = normalize(data)
+        self.assertEqual([p.symbol for p in result.positions], ["GGAL/OCT26", "GGAL/DIC26", "GGAL/JUN27"])
+        self.assertEqual([p.contracts for p in result.positions], [3, -4, 2])
+        self.assertEqual([p.current_price for p in result.positions], [6125, 6360, 6900])
+
+    def test_conflicting_and_duplicate_risk_references_reject_import(self):
+        cases = []
+        data = fixture()
+        data["positions"]["positions"][0]["instrument"] = {"symbolReference": "GGAL/DIC26"}
+        cases.append(data)
+        data = fixture()
+        for row in data["positions"]["positions"][:2]:
+            row["instrument"] = {"symbolReference": "GGAL102026"}
+        cases.append(data)
+        data = fixture()
+        data["positions"]["positions"][0]["instrument"] = {"symbolReference": "GGAL102026"}
+        futures = data["details"]["detailedPosition"]["report"]["FUTURE"]
+        futures["GGAL102026"] = copy.deepcopy(futures["GGAL/OCT26"])
+        cases.append(data)
+        data = fixture()
+        data["details"]["detailedPosition"]["report"]["FUTURE"]["GGAL/OCT26"]["detailedPositions"][0]["symbolReference"] = "GGAL/DIC26"
+        cases.append(data)
+        for index, data in enumerate(cases):
+            with self.subTest(case=index), self.assertRaises(AccountDataError):
+                normalize(data)
+
     def test_empty_account_and_flat_ggal_are_valid(self):
         data = fixture()
         data["positions"]["positions"] = []

@@ -23,8 +23,9 @@ cancellable, bounded one-shot reads. Recomputing a horizon uses already loaded
 history without another provider request.
 
 The carry checker polls REST data. The Real vs reMarkets tab reads the public A3
-WebSocket and refreshes its two contract subscriptions every five seconds.
-Its reMarkets reader independently requests both futures every one second;
+WebSocket and refreshes its four contract subscriptions every five seconds:
+`GGAL/OCT26`, `GGAL/DIC26`, `RFX20/OCT26` and `WTI/NOV26`.
+Its reMarkets reader independently requests all four futures every one second;
 request duration counts toward that interval and slow cycles do not overlap.
 Source failures clear that source immediately and use bounded 1–30-second
 reconnection backoff. Unknown exchange timestamp semantics remain advisory for
@@ -41,6 +42,10 @@ and 107 ms maximum; individual reMarkets quote requests had a 73 ms median
 and 441 ms maximum. Both sources returned usable book structures and Stop
 cleared highlights and finished cleanup. These small-sample, after-hours
 measurements do not establish market-hours performance or exchange latency.
+
+A read-only feed check on 2026-10-15 received valid bid/ask structures for all
+four contracts from both A3 and reMarkets. This confirms instrument access and
+decoding; it does not validate exchange freshness or measure timing.
 
 The original refresh
 investigation and cited provider documentation are preserved in
