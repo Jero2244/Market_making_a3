@@ -1,7 +1,17 @@
 # Interpreting the helper
 
 - **Mixed sources:** PPI spot reads are production data; REMARKETS futures are
-  simulated. The current app does not connect to a production futures feed.
+  simulated. The Real vs reMarkets tab separately reads real futures from A3's
+  anonymous viewer feed; the carry checker retains its original sources.
+- **A3 viewer protocol:** the public viewer's current quote messages are decoded
+  directly. This is a website feed, not a contracted public API; format changes
+  can stop the comparison. Exact symbols, currency, expiries and contract units
+  are validated before comparisons.
+- **Competition differences:** buy/sell highlights compare a simulated quote
+  with a real futures reference. They do not establish an offsetting executable
+  trade or the competition's official valuation. A3 refresh snapshots can carry
+  end-of-session prices outside market hours. Receipt ages are local observations,
+  not exchange latency or proof of source freshness.
 - **Manual positions:** contract counts, entry prices and current prices are
   supplied by you. Broker positions, cash, collateral and margin are not fetched.
 - **Quote quality:** missing, malformed, duplicate, wrong-identity and

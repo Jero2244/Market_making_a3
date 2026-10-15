@@ -238,12 +238,12 @@ class Client:
         self._renew_at = None
         self._request(login=True)
 
-    def snapshot(self, instrument):
+    def snapshot(self, instrument, *, include_last=False):
         symbol = instrument.get("symbol")
         if (instrument.get("provider") != "remarkets" or instrument.get("market_id") != "ROFX"
                 or not isinstance(symbol, str) or not symbol.strip() or len(symbol) > 200
                 or any(ord(c) < 32 for c in symbol)):
             raise PPIError("forbidden_parameters")
         raw = self._request(params={"marketId": "ROFX", "symbol": symbol,
-                                    "entries": "BI,OF", "depth": DEPTH})
+                                    "entries": "BI,OF,LA" if include_last else "BI,OF", "depth": DEPTH})
         return Snapshot(raw, RequestIdentity("ROFX", symbol))

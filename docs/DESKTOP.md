@@ -3,8 +3,9 @@
 ## Start and settings
 
 Open `dist/GGALDesk.exe`, or run `python -m market_making.desktop.app` from an
-editable installation. The app opens idle with **GGAL arbitrage** and
-**Position scenarios** tabs. **Try demo** previews synthetic data offline.
+editable installation. The app opens idle with **GGAL arbitrage**,
+**Position scenarios**, and **Real vs reMarkets** tabs. **Try demo** previews
+synthetic data offline.
 
 In **Settings**, choose your `.env`. A portable executable looks beside itself
 for that file; an executable in this project's `dist/` can reuse the project's
@@ -43,6 +44,48 @@ manual-check option is selected. See [checker modes](PPI_GGAL_ARBITRAGE.md).
 
 **Stop** cancels active reads and interrupts waiting. Restart becomes available
 after cleanup. Closing the app cancels its background work.
+
+## Real vs reMarkets
+
+Choose **Real vs reMarkets** and click **Start comparison**. This tab compares
+`GGAL/OCT26` and `GGAL/DIC26` in the public A3 viewer with those same futures in
+the simulated reMarkets order book. It uses `PRIMARY_USER` and
+`PRIMARY_PASSWORD` from the credentials file in Settings; PPI is not required.
+
+A3 updates arrive through the viewer's anonymous WebSocket. Subscription
+snapshots refresh every five seconds, including when prices are unchanged.
+The reMarkets books are requested every one second; slow reads never overlap.
+Each source has an independent background reader. Transient failures clear
+that source's observations and reconnect with 1/2/4/8/16/30-second backoff.
+Repeated login failure or a changed A3 format stops the comparison with a
+message. **Stop** clears highlights immediately and interrupts active reads.
+
+The two directions use executable reMarkets sides and real-market references:
+
+- Buy difference = A3 bid minus reMarkets ask.
+- Sell difference = reMarkets bid minus A3 ask.
+- Percentage = difference divided by the relevant A3 reference price × 100.
+- Gross difference per contract = difference × shares per contract.
+
+The default minimum is **one tick**. A3 metadata supplies the tick and validates
+the contract's expiry, currency and 100-share multiplier. **Maximum observation
+age** defaults to **10 seconds**. Edit these controls and click **Apply** to
+change comparisons without restarting. A zero minimum still requires a strictly
+positive difference. Missing sides disable their affected direction; malformed
+or crossed books disable both. Old observations stay visible in gray, with
+comparisons paused. The largest qualifying difference appears above the cards.
+Highlights are visual only; no sounds or order controls are included.
+
+**Observed ago** measures the time since this app received a quote or refreshed
+snapshot. It does not measure exchange quote age. Last trades and their supplied
+dates are context only. The feed can return end-of-session prices after market
+hours; receiving a new snapshot does not make those prices current trading
+opportunities. Differences exclude costs and do not guarantee a closing trade
+or the competition's final valuation.
+
+**Try demo** cycles through qualifying buys, qualifying sells, ordinary prices,
+missing sides, crossed books and old observations. It reads no credentials and
+uses no network. This tab starts and stops independently of the other screens.
 
 ## Position scenarios
 

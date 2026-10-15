@@ -11,6 +11,7 @@ from tkinter import filedialog, messagebox, ttk
 from market_making.contracts import CONTRACTS, DAY_BASIS
 from market_making.desktop.controller import MonitorController, WatchOptions, default_env_file
 from market_making.desktop.scenario_tab import ScenarioTab
+from market_making.desktop.comparison_tab import ComparisonTab
 from market_making.ppi import monitor
 from market_making.ppi.models import ManualSpotQuote
 
@@ -190,6 +191,8 @@ class DesktopApp:
         self.scenarios = ScenarioTab(self.tabs, env_variable=self.env, get_reports=lambda: self.reports,
                                      caucion_variable=self.rate)
         self.tabs.add(self.scenarios, text="Position scenarios")
+        self.comparison = ComparisonTab(self.tabs, env_variable=self.env, open_settings=self.settings)
+        self.tabs.add(self.comparison, text="Real vs reMarkets")
 
     def options(self, demo=False):
         try:
@@ -351,6 +354,7 @@ class DesktopApp:
 
     def poll(self):
         self.scenarios.poll()
+        self.comparison.poll()
         try:
             while True:
                 kind, payload = self.controller.events.get_nowait()
@@ -454,6 +458,7 @@ class DesktopApp:
     def callback_error(self, *_):
         self.controller.stop()
         self.scenarios.controller.cancel()
+        self.comparison.close()
         self.stopping = True
         self.notice.set("Unable to display the last update. Restart the checker.")
 
@@ -461,6 +466,7 @@ class DesktopApp:
         self.closing = True
         self.controller.stop()
         self.scenarios.close()
+        self.comparison.close()
         self.root.after_cancel(self.poll_id)
         self.root.destroy()
 
@@ -511,7 +517,7 @@ def self_test(output):
             assert len(app.reports) == 2
             assert app.cards["2026-10"]["status"].get() == LABELS[monitor.demo_cycle(cycle)[0]["status"]]
         assert app.cards["2026-10"]["bid"].get() == "--"
-        assert len(app.tabs.tabs()) == 2
+        assert len(app.tabs.tabs()) == 3
         assert app.tabs.tab(0, "text") == "GGAL arbitrage"
         app.tabs.select(app.scenarios)
         root.update()
@@ -519,6 +525,7 @@ def self_test(output):
         for expiry, contract in CONTRACTS.items():
             assert app.scenarios.positions[expiry]["maturity"].get() == contract.maturity.date().isoformat()
         scenario_widget_check(app)
+        comparison_widget_check(app)
         app.tabs.select(0)
         app.start_demo()
         deadline = time.monotonic() + 5
@@ -565,7 +572,8 @@ def self_test(output):
         assert app.state.get() == "Stopped"
         Path(output).write_text(json.dumps({"ok": True, "tk": tk.TkVersion, "demo_scenarios": 4,
                                            "start_stop": True, "live_minimum_seconds": 1,
-                                           "live_default_seconds": 5, "futures_helper_tabs": 2,
+                                           "live_default_seconds": 5, "futures_helper_tabs": 3,
+                                           "real_vs_remarkets": True,
                                            "manual_spot_during_monitoring": True,
                                            "manual_spot_switch_back": True,
                                            "manual_spot_bid_ask": True,
@@ -580,6 +588,60 @@ def self_test(output):
     finally:
         app.close()
     return 0
+
+
+def comparison_widget_check(app):
+    """Exercise visual eligibility, expiry, settings, demo and lifecycle in the exe."""
+    from market_making.comparison.controller import demo_quotes
+    from market_making.comparison.models import DEFAULT_INSTRUMENTS, SYMBOLS, compare
+
+    tab = app.comparison
+    app.tabs.select(tab)
+    app.root.update()
+    assert tab.min_ticks.get() == "1" and tab.max_age.get() == "10"
+    assert tab.viewport.cget("yscrollcommand")
+    assert tab.winfo_reqheight() < 500  # Content can scroll at the minimum window size.
+    for cycle in range(1, 7):
+        now = time.monotonic()
+        quotes = demo_quotes(cycle, now)
+        rows = []
+        for symbol in SYMBOLS:
+            real = next(q for q in quotes if q.symbol == symbol and q.source == "A3")
+            sim = next(q for q in quotes if q.symbol == symbol and q.source == "reMarkets")
+            rows.append({"symbol": symbol, "instrument": DEFAULT_INSTRUMENTS[symbol], "A3": real,
+                         "reMarkets": sim, "differences": compare(DEFAULT_INSTRUMENTS[symbol], real, sim, now=now)})
+        state = {"generation": 0, "active": True, "demo": True, "statuses": {"A3": "Demo", "reMarkets": "Demo"},
+                 "error": None, "rows": rows, "now": now, "max_age": 10}
+        tab.render(state)
+        buy = tab.rows[SYMBOLS[0]]["directions"]["BUY"][1]
+        sell = tab.rows[SYMBOLS[0]]["directions"]["SELL"][1]
+        assert (buy.cget("background") == "#dff3e9") == (cycle == 1)
+        assert (sell.cget("background") == "#dff3e9") == (cycle == 2)
+    tab.max_age.set("nan")
+    assert not tab.apply_settings()
+    tab.max_age.set("10")
+    tab.start_demo()
+    deadline = time.monotonic() + 3
+    while not tab.last_state["rows"][0]["A3"] and time.monotonic() < deadline:
+        app.root.update()
+        time.sleep(.01)
+    assert tab.controller.running and tab.last_state["demo"]
+    assert tab.last_state["rows"][0]["differences"][0].qualifies
+    tab.min_ticks.set("3")
+    assert tab.apply_settings()
+    assert not tab.last_state["rows"][0]["differences"][0].qualifies
+    tab.stop()
+    assert not any(d.qualifies for row in tab.last_state["rows"] for d in row["differences"])
+    deadline = time.monotonic() + 3
+    while tab.controller.running and time.monotonic() < deadline:
+        app.root.update()
+        time.sleep(.01)
+    assert not tab.controller.running
+    tab.min_ticks.set("1")
+    tab.start_demo()
+    assert tab.controller.generation == 2
+    tab.stop()
+    app.tabs.select(0)
 
 
 def scenario_widget_check(app):

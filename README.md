@@ -4,15 +4,20 @@ A desktop helper for futures traders: compare GGAL spot and futures prices,
 check implied carry against your caucion rate, and explore the P/L of manually
 entered positions.
 
-The app has two screens:
+The app has three screens:
 
 - **GGAL arbitrage**: bid/ask prices, manual spot bid/ask override, implied TNA, manual
   caucion comparison, book details, snapshot export and an optional assessment
   with funding and costs.
 - **Position scenarios**: long/short GGAL positions, projected gross P/L,
   historical return distributions and horizon-based probability estimates.
+- **Real vs reMarkets**: compare A3 real GGAL futures bid/ask with reMarkets for
+  October and December 2026. Visual highlights use an adjustable minimum in
+  ticks and maximum observation age. This screen needs only Primary credentials;
+  the A3 viewer feed is anonymous.
 
 Spot reads use **PPI production**; futures reads use **REMARKETS simulated**.
+The comparison tab reads real futures from A3's public viewer feed.
 Positions are entered manually. The app does not import broker holdings or send
 orders. Source labels and quote-quality diagnostics stay visible.
 
@@ -104,16 +109,19 @@ New-Item -ItemType Directory -Force build | Out-Null
 These checks use synthetic data, mocks and local test servers. The widget check
 also runs against `dist/GGALDesk.exe --self-test build/exe_gui_check.json`.
 
-Verified on 2026-10-14: **214 offline tests** passed in the isolated desktop
-runtime, and both source and rebuilt executable widget checks passed. No live
-broker requests or orders were made during the cleanup.
+Verified on 2026-10-14: **248 offline tests** passed in the isolated desktop
+runtime, and source and rebuilt executable widget checks passed. A brief
+read-only after-hours check received both GGAL contracts from A3 and reMarkets,
+including A3 subscription refreshes and clean Stop behavior. No orders were
+sent. Open-market comparison and timing validation remain pending.
 
 ## Project layout
 
 ```text
 src/market_making/
   contracts.py     Shared contract assumptions
-  desktop/         The two-screen Windows interface
+  desktop/         The three-screen Windows interface
+  comparison/      A3 real-futures feed and reMarkets difference monitor
   ppi/             Read-only provider adapters and GGAL monitoring
   scenarios/       Position P/L, historical returns and trading sessions
 config/            Optional full-assessment template
