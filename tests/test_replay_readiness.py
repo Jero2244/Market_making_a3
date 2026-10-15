@@ -12,7 +12,11 @@ ROOT = Path(__file__).resolve().parents[1]
 ORIGINAL = ROOT / "data/live_exploratory_20261002_01"
 IDENTITY = ("ROFX", "RFX20/DIC26")
 POLICY = json.loads((ROOT / "config" / "replay_acceptance_policy.json").read_text())
-SPEC = json.loads((ORIGINAL / "contract.json").read_text())["instrument"]
+SAVED_CAPTURE_AVAILABLE = all((ORIGINAL / name).is_file()
+                              for name in ("contract.json", "report.json", "stream.jsonl"))
+# Synthetic increments keep unit tests independent of ignored local captures.
+SPEC = (json.loads((ORIGINAL / "contract.json").read_text())["instrument"]
+        if SAVED_CAPTURE_AVAILABLE else {"minPriceIncrement": 100, "tickSize": 1})
 
 
 def message(data, second=0, timestamp=None):
@@ -27,6 +31,7 @@ FULL = {"BI": [{"price": 439600, "size": 10}], "OF": [{"price": 444300, "size": 
 
 
 class ReplayTests(unittest.TestCase):
+    @unittest.skipUnless(SAVED_CAPTURE_AVAILABLE, "Optional local historical capture is absent")
     def test_saved_raw_observations_and_no_exchange_freshness_claim(self):
         events = [json.loads(s) for s in (ORIGINAL / "stream.jsonl").read_text().splitlines()]
         result = replay.quality(events, IDENTITY, SPEC, POLICY)
@@ -91,6 +96,7 @@ class ReplayTests(unittest.TestCase):
         self.assertIn("Terminal", guard.reason)
         self.assertEqual(guard.generation, 4)
 
+    @unittest.skipUnless(SAVED_CAPTURE_AVAILABLE, "Optional local historical capture is absent")
     def test_exclusive_offline_report_preserves_sources_and_blocks_all_replay(self):
         before = replay.hashes(ORIGINAL)
         with tempfile.TemporaryDirectory() as folder, patch.object(live, "authenticate") as auth:
@@ -131,6 +137,7 @@ class ReplayTests(unittest.TestCase):
                         [{**session, "symbol": "OTHER"}] + rows[1:], rows + [end]):
             self.assertFalse(live.summarize(invalid, IDENTITY, expected_duration=300)["duration_completed"])
 
+    @unittest.skipUnless(SAVED_CAPTURE_AVAILABLE, "Optional local historical capture is absent")
     def test_reanalysis_does_not_invent_process_exit_status(self):
         from market_making.validation.reanalyze_demo import reanalyze
         with tempfile.TemporaryDirectory() as folder:
@@ -139,6 +146,7 @@ class ReplayTests(unittest.TestCase):
             self.assertEqual(result["original_inferred_exit_equivalent"], 2)
             self.assertEqual(result["retrospective_observational_stages"]["recovery"]["status"], "PASS")
 
+    @unittest.skipUnless(SAVED_CAPTURE_AVAILABLE, "Optional local historical capture is absent")
     def test_terminal_error_cannot_pass_offline_observational_acceptance(self):
         rows = [json.loads(s) for s in (ORIGINAL / "stream.jsonl").read_text().splitlines()]
         rows.insert(-1, {"event": "error"})

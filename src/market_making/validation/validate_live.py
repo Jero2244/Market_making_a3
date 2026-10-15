@@ -10,6 +10,7 @@ import sys
 
 import requests
 import websocket
+from market_making.http_policy import decimal_json_default
 
 from market_making.market_data.check_connection import (BASE_URL, PrimaryError, authenticate, get_json,
                               instrument_id, load_dotenv, require_field, safe_payload)
@@ -33,7 +34,7 @@ def write_json(path, value, secrets=()):
     if not safe_payload(value, secrets):
         raise PrimaryError("Artifact withheld: sensitive content detected.")
     with path.open("x", encoding="utf-8") as f:
-        json.dump(value, f, indent=2, ensure_ascii=True)
+        json.dump(value, f, indent=2, ensure_ascii=True, allow_nan=False, default=decimal_json_default)
         f.flush()
         os.fsync(f.fileno())
 

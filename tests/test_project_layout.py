@@ -25,6 +25,7 @@ COMMANDS = {
     "collect-session-sources": "market_making.validation.collect_session_sources",
     "reanalyze-demo": "market_making.validation.reanalyze_demo",
     "replay-readiness": "market_making.validation.replay_readiness",
+    "offline-readiness": "market_making.validation.offline_readiness",
 }
 
 

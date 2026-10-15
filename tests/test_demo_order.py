@@ -16,6 +16,7 @@ from market_making.execution.demo_execution import DemoClient, HOST, MonitoringB
 from market_making.market_data.instrument_rules import SYMBOL, resolve, validate_detail
 from market_making.market_data.order_book import parse_snapshot
 from market_making.execution.smoke_demo_order import choose_price, diagnostic_preflight, final_send_gate, main, session_gate, timestamp_gate
+from market_making.execution.journal import context
 
 NOW = datetime(2026, 10, 2, 15, 0, tzinfo=timezone.utc)
 IDS = {"clOrdId": "demo123", "proprietary": "PBCP"}
@@ -136,6 +137,7 @@ class TransportTests(unittest.TestCase):
         self.session._primary_secrets = ["private-token", "private-user", "private-pass"]
         self.response = Mock(status_code=200)
         self.response.json.return_value = {"status": "OK", "order": {"clientId": "demo123", "proprietary": "PBCP"}}
+        self.response.iter_content.side_effect = lambda **kw: [json.dumps(self.response.json()).encode()]
         self.session.request.return_value = self.response
         self.client = DemoClient(self.session, "REM123")
 
@@ -237,6 +239,7 @@ class RealClientMetadataTests(unittest.TestCase):
         self.session = Mock()
         self.session._primary_secrets = ["private-token"]
         self.response = Mock(status_code=200)
+        self.response.iter_content.side_effect = lambda **kw: [json.dumps(self.response.json()).encode()]
         self.session.request.return_value = self.response
         self.client = DemoClient(self.session, "REM123")
         self.state = {"phase": "acknowledged", "ids": IDS, "price": "440000"}
@@ -716,7 +719,9 @@ class CLITests(unittest.TestCase):
             client.status.return_value = report()
             folder = Path(temp)/"recover"
             folder.mkdir()
-            durable(folder/"intent.json", {"phase": "acknowledged", "symbol": SYMBOL, "side": "BUY",
+            durable(folder/"intent.json", {"schema_version": 1,
+                    "context": context(hashlib.sha256(b"REM123").hexdigest(), folder),
+                    "phase": "acknowledged", "symbol": SYMBOL, "side": "BUY",
                     "qty": 1, "ordType": "LIMIT", "timeInForce": "DAY", "price": "440000", "ids": IDS}, True)
             durable(Path(temp)/"lock.json", {"evidence_dir": str(folder.resolve()),
                     "account_tag": hashlib.sha256(b"REM123").hexdigest()}, True)
@@ -731,6 +736,23 @@ class CLITests(unittest.TestCase):
                 self.assertEqual(main([]), 2)
             session.assert_not_called()
             env.assert_not_called()
+
+    def test_legacy_recovery_journal_never_cancels_or_changes_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            client = self.setup_cli(temp)
+            folder = Path(temp) / "legacy"
+            folder.mkdir()
+            durable(folder / "intent.json", {"phase": "acknowledged", "symbol": SYMBOL,
+                    "side": "BUY", "qty": 1, "ordType": "LIMIT", "timeInForce": "DAY",
+                    "price": "440000", "ids": IDS}, True)
+            durable(Path(temp) / "lock.json", {"evidence_dir": str(folder.resolve()),
+                    "account_tag": hashlib.sha256(b"REM123").hexdigest()}, True)
+            before = (folder / "intent.json").read_bytes()
+            self.assertEqual(main(["--cancel-only", "--evidence-dir", str(folder)]), 2)
+            client.cancel.assert_not_called()
+            client.submit.assert_not_called()
+            self.assertEqual((folder / "intent.json").read_bytes(), before)
+            self.assertTrue((Path(temp) / "lock.json").exists())
 
     def test_session_evidence_requires_independent_timestamp_review(self):
         with tempfile.TemporaryDirectory() as temp:

@@ -14,6 +14,7 @@ from market_making.execution.demo_execution import DemoClient, MonitoringBlocked
 from market_making.market_data.instrument_rules import resolve, number
 from market_making.market_data.order_book import fetch_book
 from market_making.paths import DEMO_ORDER_LOCK
+from market_making.execution.journal import context, journal_lease, read_journal, validate_recovery, release_owned_lock
 
 LOCK = DEMO_ORDER_LOCK
 
@@ -189,9 +190,13 @@ def main(argv=None):
         parser.error("need evidence-dir; send requires preflight and independent review-evidence; cancel-only excludes send")
     folder = args.evidence_dir.resolve()
     lock_owned = False
+    lease = None
     try:
         if not args.cancel_only:
             folder.mkdir(parents=True, exist_ok=False)
+        if args.send or args.cancel_only:
+            lease = journal_lease(folder)
+            lease.__enter__()
         load_dotenv(Path(".env"))
         user, password, account = (os.getenv(k, "") for k in
                                    ("PRIMARY_USER", "PRIMARY_PASSWORD", "PRIMARY_ACCOUNT"))
@@ -201,29 +206,23 @@ def main(argv=None):
             raise PrimaryError("Missing local credentials/account.")
         account = identifier(account)
         account_tag = hashlib.sha256(account.encode()).hexdigest()
+        expected_lock = {"evidence_dir": str(folder), "account_tag": account_tag}
         with requests.Session() as session:
             session.trust_env = False  # no ambient proxy/netrc credential routing
             authenticate(session, user, password)
             client = DemoClient(session, account)
             journal = folder / "intent.json"
             if args.cancel_only:
-                lock = json.loads(LOCK.read_text(encoding="utf-8"))
-                if lock != {"evidence_dir": str(folder), "account_tag": account_tag}:
+                lock = read_journal(LOCK)
+                if lock != expected_lock:
                     raise PrimaryError("Recovery lock/account mismatch.")
-                state = json.loads(journal.read_text(encoding="utf-8"))
+                state = read_journal(journal)
                 if not safe_payload(state, session._primary_secrets):
                     raise PrimaryError("Unsafe recovery data.")
-                if (state.get("symbol") != "RFX20/OCT26" or state.get("side") != "BUY"
-                        or state.get("qty") != 1 or state.get("ordType") != "LIMIT"
-                        or state.get("timeInForce") != "DAY" or number(state.get("price")) % 100):
-                    raise PrimaryError("Recovery intent invalid.")
-                ids = state.get("ids")
-                if not isinstance(ids, dict) or set(ids) != {"clOrdId", "proprietary"}:
-                    raise PrimaryError("Unknown submit: reconcile manually in demo UI; NEVER resubmit.")
-                ids = {k: identifier(v) for k, v in ids.items()}
+                ids = validate_recovery(state, context(account_tag, folder))
                 success = cleanup(client, ids, number(state["price"]), journal, state)
                 if success:
-                    LOCK.unlink()
+                    release_owned_lock(LOCK, expected_lock)
                 print("Cleanup terminal proof recorded." if success else "BLOCKED/FAIL: smoke did not pass; inspect cleanup evidence; lock retained.")
                 return 0 if success else 2
             rules, book, price = preflight(session, client, args.session_evidence)
@@ -250,16 +249,17 @@ def main(argv=None):
             # Read evidence BEFORE lifecycle; final callback performs no filesystem IO.
             reviewed_evidence = read_review_evidence(args.session_evidence)
             success = lifecycle(client, price, journal, recheck,
-                                lambda: final_send_gate(reviewed_evidence, send_book))
+                                lambda: final_send_gate(reviewed_evidence, send_book),
+                                recovery_context=context(account_tag, folder))
             final_state = json.loads(journal.read_text(encoding="utf-8"))
             if (final_state.get("phase") == "aborted_no_send"
                     and final_state.get("orders_sent") == 0):
-                LOCK.unlink()  # durable proof the final gate prevented submission
+                release_owned_lock(LOCK, expected_lock)  # durable no-send proof
                 lock_owned = False
                 print("BLOCKED: final review/freshness gate failed; orders sent: 0.")
                 return 2
             if success:
-                LOCK.unlink()
+                release_owned_lock(LOCK, expected_lock)
                 lock_owned = False
             print("Terminal cancelled/zero/absent proof recorded." if success else
                   "BLOCKED/FAIL: lock retained; use cancel-only or manual demo reconciliation.")
@@ -270,7 +270,7 @@ def main(argv=None):
             try:
                 state = json.loads((folder / "intent.json").read_text(encoding="utf-8"))
                 if state.get("phase") == "prepared":
-                    LOCK.unlink()  # no submission intent was durably entered
+                    release_owned_lock(LOCK, expected_lock)  # no submission intent entered
             except Exception:
                 pass
         if folder.is_dir() and not args.cancel_only:
@@ -281,6 +281,9 @@ def main(argv=None):
                 pass
         print("BLOCKED: gate/request/storage failure. Inspect local evidence; never blindly resubmit.")
         return 2
+    finally:
+        if lease is not None:
+            lease.__exit__(None, None, None)
 
 
 if __name__ == "__main__":

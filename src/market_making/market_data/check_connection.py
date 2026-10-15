@@ -10,20 +10,20 @@ from pathlib import Path
 import sys
 
 import requests
+from market_making.http_policy import PrimaryError, READ_OPERATIONS, fixed_request, response_json, decimal_json_default
 
 
 BASE_URL = "https://api.remarkets.primary.com.ar"
 ENTRIES = "BI,OF,LA,OP,CL,SE,OI,TV"
-ALLOWED_OPERATIONS = frozenset({("POST", "/auth/getToken"),
-    ("GET", "/rest/segment/all"), ("GET", "/rest/instruments/all"),
-    ("GET", "/rest/instruments/detail"), ("GET", "/rest/marketdata/get")})
+ALLOWED_OPERATIONS = READ_OPERATIONS
 
 
 def safe_payload(value, secrets=()):
     """Reject secret echoes (including JSON keys), never attempt partial redaction."""
     pending = [value]
     sensitive = {"xauthtoken", "xusername", "xpassword", "authorization",
-                 "username", "password", "token", "accesstoken", "refreshtoken"}
+                 "username", "password", "token", "accesstoken", "refreshtoken",
+                 "apikey", "secret", "clientsecret", "privatekey", "passphrase"}
     sensitive = {s.upper() for s in sensitive}
     while pending:
         item = pending.pop()
@@ -39,31 +39,11 @@ def safe_payload(value, secrets=()):
     return True
 
 
-class PrimaryError(RuntimeError):
-    """Connection, authentication or API response failure."""
-
-
 def request(session, method, path, **kwargs):
     """Keep credentials on the configured host and bound network waits."""
     if (method, path) not in ALLOWED_OPERATIONS:
         raise PrimaryError("Operation is not on the read-only validation allowlist.")
-    try:
-        response = session.request(
-            method, BASE_URL + path, timeout=(10, 30),
-            allow_redirects=False, **kwargs
-        )
-    except requests.RequestException as exc:
-        # Do not log request objects, headers or credentials.
-        raise PrimaryError(f"{path}: network failure ({type(exc).__name__}).") from None
-    if not 200 <= response.status_code < 300:
-        hints = {
-            401: "Authentication failed or token expired; check credentials and rerun.",
-            403: "Access denied; check REMARKETS API permissions.",
-            429: "Rate limit reached; wait before rerunning.",
-        }
-        hint = hints.get(response.status_code, "Check endpoint availability and retry later.")
-        raise PrimaryError(f"{path}: HTTP {response.status_code}. {hint}")
-    return response
+    return fixed_request(session, method, path, operations=ALLOWED_OPERATIONS, **kwargs)
 
 
 def authenticate(session, username, password):
@@ -72,6 +52,7 @@ def authenticate(session, username, password):
         "X-Username": username, "X-Password": password,
     })
     token = response.headers.get("X-Auth-Token")
+    response.close()
     if not token:
         raise PrimaryError("Authentication response did not include X-Auth-Token.")
     session.headers["X-Auth-Token"] = token
@@ -80,10 +61,7 @@ def authenticate(session, username, password):
 
 def get_json(session, path, **params):
     response = request(session, "GET", path, params=params)
-    try:
-        payload = response.json()
-    except ValueError:
-        raise PrimaryError(f"{path}: expected JSON, received a non-JSON response.") from None
+    payload = response_json(response)
     if not isinstance(payload, dict) or payload.get("status") != "OK":
         # Avoid dumping arbitrary server responses that may contain sensitive data.
         raise PrimaryError(f"{path}: API did not return status OK; check permissions and parameters.")
@@ -129,7 +107,7 @@ def best_price(levels, side):
 
 def print_snapshot(data):
     print("Market data (raw entries; supplied dates have unverified scope, not authoritative book freshness):")
-    print(json.dumps(data, indent=2, ensure_ascii=True))
+    print(json.dumps(data, indent=2, ensure_ascii=True, default=decimal_json_default))
     bid = best_price(data.get("BI"), "BI")
     ask = best_price(data.get("OF"), "OF")
     if bid is None or ask is None:
@@ -166,6 +144,7 @@ def load_dotenv(path):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--live", action="store_true", help="Explicit opt-in to credentialed read-only REMARKETS requests")
     parser.add_argument("--search", default="RFX20", help="Catalog symbol substring (default: RFX20)")
     parser.add_argument("--symbol", help="Exact symbol copied from discovery; fetch its details and snapshot")
     parser.add_argument("--market-id", default="ROFX")
@@ -176,6 +155,10 @@ def main(argv=None):
                         help="Dotenv file to load (default: .env; use --no-env to disable)")
     parser.add_argument("--no-env", action="store_true", help="Do not load a .env file")
     args = parser.parse_args(argv)
+
+    if not args.live:
+        print("NOT_RUN: offline default; use --live for credentialed read-only requests.")
+        return 2
 
     if not args.no_env:
         load_dotenv(args.env_file)
@@ -193,7 +176,7 @@ def main(argv=None):
             authenticate(session, username, password)
             print("Authentication OK (token kept in memory).")
             segments = get_json(session, "/rest/segment/all")
-            print("Segments:", json.dumps(require_field(segments, "segments", list)))
+            print("Segments:", json.dumps(require_field(segments, "segments", list), default=decimal_json_default))
             catalog = get_json(session, "/rest/instruments/all")
             instruments = require_field(catalog, "instruments", list)
             if not all(isinstance(item, dict) for item in instruments):
@@ -214,7 +197,7 @@ def main(argv=None):
                 params = {"marketId": args.market_id, "symbol": args.symbol}
                 detail = get_json(session, "/rest/instruments/detail", **params)
                 print("Instrument details:")
-                print(json.dumps(require_field(detail, "instrument", dict), indent=2))
+                print(json.dumps(require_field(detail, "instrument", dict), indent=2, default=decimal_json_default))
                 snapshot = get_json(session, "/rest/marketdata/get", **params,
                                     entries=ENTRIES, depth=args.depth)
                 received_at = datetime.now(timezone.utc).isoformat()
@@ -228,7 +211,7 @@ def main(argv=None):
             if args.output:
                 args.output.parent.mkdir(parents=True, exist_ok=True)
                 with args.output.open("x", encoding="utf-8") as output:
-                    json.dump(report, output, indent=2, ensure_ascii=True)
+                    json.dump(report, output, indent=2, ensure_ascii=True, default=decimal_json_default)
                 print(f"Saved data to {args.output}")
         return 0
     except (PrimaryError, OSError, EOFError) as exc:

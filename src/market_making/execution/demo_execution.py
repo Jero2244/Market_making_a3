@@ -13,6 +13,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from market_making.market_data.check_connection import PrimaryError, safe_payload
 from market_making.market_data.instrument_rules import MARKET, SYMBOL, number
+from market_making.http_policy import fixed_request, response_json, ORDER_READ_PATHS, MUTATION_PATHS, decimal_json_default
 
 HOST = "https://api.remarkets.primary.com.ar"
 PATHS = frozenset({"/rest/order/newSingleOrder", "/rest/order/cancelById",
@@ -78,16 +79,11 @@ class DemoClient:
     def call(self, path, **params):
         if path not in PATHS:
             raise PrimaryError("Execution endpoint not allowed.")
+        response = fixed_request(self.session, "GET", path,
+            operations=frozenset(("GET", p) for p in ORDER_READ_PATHS | MUTATION_PATHS), params=params)
         try:
-            response = self.session.request("GET", HOST + path, params=params,
-                                            timeout=(5, 10), allow_redirects=False)
-        except requests.RequestException:
-            raise PrimaryError("Demo request transport failed; outcome may be uncertain.") from None
-        if not 200 <= response.status_code < 300:
-            raise PrimaryError("Demo request HTTP failed; outcome may be uncertain.")
-        try:
-            payload = response.json()
-        except ValueError:
+            payload = response_json(response)
+        except PrimaryError:
             raise DemoProtocolError("RESPONSE_NOT_JSON") from None
         if not isinstance(payload, dict) or payload.get("status") != "OK":
             raise DemoProtocolError("RESPONSE_NOT_OK")
@@ -196,15 +192,19 @@ def account_id(order):
 def durable(path, value, exclusive=False):
     """Atomic replace of flushed intent/state. No raw server reports or account numbers."""
     path = Path(path)
+    if path.is_symlink():
+        raise PrimaryError("Evidence symlink rejected.")
+    # Serialize before opening: invalid objects cannot truncate existing evidence.
+    text = json.dumps(value, indent=2, allow_nan=False, default=decimal_json_default)
     if exclusive:
         with path.open("x", encoding="utf-8") as output:
-            json.dump(value, output, indent=2)
+            output.write(text)
             output.flush()
             os.fsync(output.fileno())
         return
     tmp = path.with_suffix(path.suffix + ".tmp")
     with tmp.open("x", encoding="utf-8") as output:
-        json.dump(value, output, indent=2)
+        output.write(text)
         output.flush()
         os.fsync(output.fileno())
     os.replace(tmp, path)
@@ -325,9 +325,10 @@ def cleanup(client, ids, price, journal, state, polls=5, sleep=time.sleep):
     return False
 
 
-def lifecycle(client, price, journal, recheck, final_check, sleep=time.sleep):
+def lifecycle(client, price, journal, recheck, final_check, sleep=time.sleep, recovery_context=None):
     """At most ONE submission. Persist submit intent before touching the network."""
-    state = {"phase": "prepared", "symbol": SYMBOL, "side": "BUY", "qty": 1,
+    state = {"schema_version": 1, "context": recovery_context,
+             "phase": "prepared", "symbol": SYMBOL, "side": "BUY", "qty": 1,
              "ordType": "LIMIT", "timeInForce": "DAY", "price": str(price)}
     durable(journal, state, exclusive=True)
     recheck()

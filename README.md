@@ -15,7 +15,7 @@ contracts, record market data, inspect snapshots, and assess replay readiness.
 | --- | --- |
 | REST discovery & snapshots | Implemented; historical read-only evidence collected |
 | WebSocket recording & reconnect | Implemented; exploratory transport recovery observed |
-| Offline tests | Historical restructure baseline: 123; transport regressions added separately |
+| Offline tests | Hardened network-forbidden fixture suite; measured counts in [handoff](docs/OFFLINE_READINESS_HANDOFF.md) |
 | Exchange freshness & strict-session validation | **Blocked** — timestamp, clock, and session evidence unresolved |
 | Book reconstruction & strategy replay | **Blocked** — update rules and data quality not yet verified |
 | Demo order sending | **Blocked** — freshness, account readiness, and independent review required |
@@ -25,6 +25,16 @@ contracts, record market data, inspect snapshots, and assess replay readiness.
 > and offline test results do not authorize trading.
 
 ## Quick start
+
+Start without credentials, network, or output files:
+
+```powershell
+offline-readiness
+```
+
+This machine-readable inventory always reports **BLOCKED** (exit 2); tests and
+implemented local controls do not confer broker authority or authorize sending.
+See [completed work and external blockers](docs/OFFLINE_READINESS_HANDOFF.md).
 
 Run these commands from the **project root** in PowerShell.
 
@@ -59,13 +69,13 @@ at [REMARKETS](https://remarkets.primary.ventures/).
 For a first **read-only network request**, discover available contracts:
 
 ```powershell
-check-connection
+check-connection --live
 ```
 
 Copy an exact futures symbol from the output to inspect and save its snapshot:
 
 ```powershell
-check-connection --symbol "EXACT_SYMBOL_FROM_OUTPUT" --depth 3 --output data/first_snapshot.json
+check-connection --live --symbol "EXACT_SYMBOL_FROM_OUTPUT" --depth 3 --output data/first_snapshot.json
 ```
 
 Use a **new output path for each run**. Existing evidence files are not overwritten.
@@ -78,7 +88,7 @@ Use the virtual environment's Python directly; activation and a Scripts entry on
 
 ```powershell
 .\.venv\Scripts\python.exe -m market_making.market_data.check_connection --help
-.\.venv\Scripts\python.exe -m market_making.market_data.check_connection
+.\.venv\Scripts\python.exe -m market_making.market_data.check_connection --live
 ```
 
 If installed into your current Python instead, use `python -m` with the same module.
@@ -93,7 +103,7 @@ and relative `data/` paths.
 
 | Command | Purpose |
 | --- | --- |
-| `check-connection` | Discover contracts and fetch REST snapshots |
+| `check-connection --live` | Explicit credentialed discovery and REST snapshots (default offline) |
 | `stream-market-data` | Record read-only WebSocket market data |
 | `view-order-book` | Exact `ROFX RFX20/OCT26`; REST default, optional raw WebSocket observations |
 | `validate-live` | Run bounded read-only demo validation; requires `--live` for network access |
@@ -124,8 +134,11 @@ and [demo safety procedure](docs/DEMO_ORDER_TEST.md) before any credentialed tes
 ### Run offline tests
 
 ```powershell
-python -m unittest discover -s tests -v
+python tests/run_offline.py
 ```
+
+Synthetic regressions run without local capture files. Four historical capture
+checks are skipped when the ignored local `data/` capture is absent.
 
 ## Project layout
 
@@ -188,3 +201,9 @@ The full milestones and acceptance criteria are in the [roadmap](docs/PLAN.md).
 | [Demo order procedure](docs/DEMO_ORDER_TEST.md) | Safety gates, recovery limitations, and review requirements |
 | [WebSocket order flow](docs/WEBSOCKET_ORDER_FLOW.md) | Read-only account reports, bounded cleanup, and continuity limitations |
 | [Primary API reference](https://apihub.primary.com.ar/assets/docs/Primary-API.pdf) | Official REST and WebSocket documentation |
+# Offline remediation framework
+
+The bounded synthetic framework and remaining external blockers are documented
+in [Offline simulation contracts](docs/OFFLINE_SIMULATION_CONTRACTS.md).
+It provides no broker transport or production authority; real send gates remain
+unconditionally blocked. Run its adversarial fixtures with `python tests/run_offline.py`.

@@ -184,7 +184,7 @@ class LiveTests(unittest.TestCase):
         args, kwargs = session.request.call_args
         self.assertEqual(args[1], rest.BASE_URL + "/rest/instruments/all")
         self.assertFalse(kwargs["allow_redirects"])
-        self.assertEqual(kwargs["timeout"], (10, 30))
+        self.assertEqual(kwargs["timeout"], (5, 10))
 
     def test_session_gate_and_provenance(self):
         now = datetime(2026, 10, 2, 16, tzinfo=timezone.utc)
@@ -208,6 +208,7 @@ class LiveTests(unittest.TestCase):
         session._primary_secrets = ["secret-value"]
         session.request.return_value.status_code = 200
         session.request.return_value.json.return_value = {"status": "OK", "instruments": [{"echo": "secret-value"}]}
+        session.request.return_value.iter_content.return_value = [json.dumps(session.request.return_value.json.return_value).encode()]
         with self.assertRaises(rest.PrimaryError):
             rest.get_json(session, "/rest/instruments/all")
 
