@@ -1,8 +1,8 @@
 # GGAL Desk
 
 A desktop helper for futures traders: compare GGAL spot and futures prices,
-check implied carry against your caucion rate, and explore the P/L of manually
-entered positions.
+check implied carry against your caucion rate, and explore the P/L of manual
+positions or GGAL futures imported from a simulated reMarkets account.
 
 The app has three screens:
 
@@ -18,8 +18,10 @@ The app has three screens:
 
 Spot reads use **PPI production**; futures reads use **REMARKETS simulated**.
 The comparison tab reads real futures from A3's public viewer feed.
-Positions are entered manually. The app does not import broker holdings or send
-orders. Source labels and quote-quality diagnostics stay visible.
+Futures P/L accepts manual positions or a reMarkets account snapshot. Account
+imports include only outright GGAL futures; other holdings are excluded from P/L.
+Cash and margin summaries cover the whole simulated account. The app does not
+send orders. Source labels and quote-quality diagnostics stay visible.
 
 ## Windows quick start
 
@@ -66,7 +68,10 @@ variables take precedence over file values. Credentials stay local and ignored
 by Git; they are not included in the executable or archive.
 
 Manual spot mode needs only Primary credentials. Position spot/history fetches
-need only PPI credentials.
+need only PPI credentials. Loading the simulated account needs PRIMARY_USER and
+PRIMARY_PASSWORD. Its sole account is discovered automatically; set the optional
+PRIMARY_ACCOUNT when the login has several accounts. Each Load / refresh account
+action rereads the credentials file selected in Settings.
 
 ## Contract assumptions
 

@@ -6,11 +6,24 @@ Scenario expiry edits and reviewed full-assessment files remain explicit overrid
 """
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+import re
 
 
 BA = timezone(timedelta(hours=-3))
 CONTRACT_SHARES = 100
 DAY_BASIS = 365
+
+GGAL_MONTHS = ("ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC")
+
+
+def ggal_expiry(symbol):
+    """Recognize outright GGAL futures only, excluding stock and options."""
+    if not isinstance(symbol, str):
+        return None
+    match = re.fullmatch(r"GGAL/([A-Z]{3})([0-9]{2})", symbol)
+    if match is None or match[1] not in GGAL_MONTHS:
+        return None
+    return f"20{match[2]}-{GGAL_MONTHS.index(match[1]) + 1:02d}"
 
 
 @dataclass(frozen=True)

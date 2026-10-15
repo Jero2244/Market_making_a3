@@ -1,0 +1,44 @@
+{
+  "account": "REMTEST",
+  "accounts": {"status": "OK", "accounts": [{"name": "REMTEST", "status": true}]},
+  "positions": {
+    "status": "OK",
+    "positions": [
+      {"symbol": "GGAL/OCT26", "tradingSymbol": "GGAL/OCT26", "buySize": 5, "sellSize": 2, "buyPrice": 6000, "sellPrice": 6100},
+      {"symbol": "GGAL/DIC26", "tradingSymbol": "GGAL/DIC26", "buySize": 0, "sellSize": 4, "buyPrice": 0, "sellPrice": 6400},
+      {"symbol": "GGAL/JUN27", "tradingSymbol": "GGAL/JUN27", "buySize": 2, "sellSize": 0, "buyPrice": 6800, "sellPrice": 0},
+      {"symbol": "DLR/OCT26", "buySize": 20, "sellSize": 0, "buyPrice": 1500},
+      {"symbol": "MERV - XMEV - GGAL - CI", "buySize": 300, "sellSize": 0, "buyPrice": 5900},
+      {"symbol": "GGAL/OCT26 6000 C", "buySize": 10, "sellSize": 0, "buyPrice": 100}
+    ]
+  },
+  "details": {
+    "status": "OK",
+    "detailedPosition": {
+      "account": "REMTEST", "lastCalculation": 1791977501894,
+      "report": {
+        "FUTURE": {
+          "GGAL/OCT26": {"detailedPositions": [{"contractType": "FUTURE", "totalCurrentSize": 3, "marketPrice": 6125, "currency": "ARS", "priceConversionFactor": 1}]},
+          "GGAL/DIC26": {"detailedPositions": [{"contractType": "FUTURE", "totalCurrentSize": -4, "marketPrice": 6360, "currency": "ARS", "priceConversionFactor": 1}]},
+          "GGAL/JUN27": {"detailedPositions": [{"contractType": "FUTURE", "totalCurrentSize": 2, "marketPrice": 6900, "currency": "ARS", "priceConversionFactor": 1}]},
+          "DLR/OCT26": {"detailedPositions": [{"contractType": "FUTURE", "totalCurrentSize": 20, "marketPrice": 1500}]}
+        },
+        "STOCK": {"MERV - XMEV - GGAL - CI": {"detailedPositions": [{"totalCurrentSize": 300}]}},
+        "FUTURE_OPTION_CALL": {"GGAL/OCT26 6000 C": {"detailedPositions": [{"totalCurrentSize": 10}]}}
+      }
+    }
+  },
+  "report": {
+    "status": "OK",
+    "accountData": {
+      "accountName": "REMTEST", "hasError": false, "currentCash": 158000000,
+      "margin": 2000000, "collateral": 500000, "lastCalculation": 1791977536445,
+      "detailedAccountReports": {"0": {"availableToOperate": {"total": 155500000}}}
+    }
+  },
+  "instruments": {
+    "GGAL/OCT26": {"status": "OK", "instrument": {"instrumentId": {"symbol": "GGAL/OCT26", "marketId": "ROFX"}, "cficode": "FXXXSX", "currency": "ARS", "contractMultiplier": 100, "priceConvertionFactor": 1, "maturityDate": "20261030"}},
+    "GGAL/DIC26": {"status": "OK", "instrument": {"instrumentId": {"symbol": "GGAL/DIC26", "marketId": "ROFX"}, "cficode": "FXXXSX", "currency": "ARS", "contractMultiplier": 100, "priceConvertionFactor": 1, "maturityDate": "20261230"}},
+    "GGAL/JUN27": {"status": "OK", "instrument": {"instrumentId": {"symbol": "GGAL/JUN27", "marketId": "ROFX"}, "cficode": "FXXXSX", "currency": "ARS", "contractMultiplier": 100, "priceConvertionFactor": 1, "maturityDate": "20270630"}}
+  }
+}

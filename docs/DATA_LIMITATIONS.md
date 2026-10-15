@@ -12,8 +12,12 @@
   trade or the competition's official valuation. A3 refresh snapshots can carry
   end-of-session prices outside market hours. Receipt ages are local observations,
   not exchange latency or proof of source freshness.
-- **Manual positions:** contract counts, entry prices and current prices are
-  supplied by you. Broker positions, cash, collateral and margin are not fetched.
+- **Position sources:** manual simulation uses your contract counts and prices.
+  The optional reMarkets import reads a simulated account and includes only
+  outright GGAL futures in P/L. Cash, collateral and margin cover all instruments
+  in that account. Imports are explicit snapshots, not continuously updated holdings.
+  Average entries are the API's basis, which daily settlement may reset; account
+  market prices are risk valuations with separately displayed calculation times.
 - **Quote quality:** missing, malformed, duplicate, wrong-identity and
   crossed/locked books remain unavailable. Source time and local receipt time
   are kept separate. An HTTP response does not certify exchange freshness.
@@ -24,7 +28,8 @@
   display the limitation explicitly.
 - **Contract assumptions:** shared dates, end-of-day time, multiplier and rate
   basis are user assumptions. Scenario expiry edits and full-assessment files
-  are explicit overrides. Expired contracts require updated shared settings.
+  are explicit overrides. Imported GGAL expiry dates and contract units are checked
+  against reMarkets instrument metadata. Expired monitor contracts require updated shared settings.
 - **Gross P/L:** projections exclude commissions, bid/ask execution costs,
   taxes, margin financing and cashflow adjustments. Since-entry P/L may include
   differences already settled by the broker.

@@ -1,15 +1,19 @@
-"""Cancellable, bounded one-shot PPI reads; workers never access Tk widgets."""
+"""Cancellable PPI and simulated-account reads; workers never access Tk widgets."""
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from queue import Queue
+import os
 import threading
+import time
 
 from market_making.ppi.client import Client, PPIError
-from market_making.ppi.config import load_credentials
+from market_making.ppi.config import load_credentials, read_env
+from market_making.ppi.remarkets import Client as RemarketsClient, load_credentials as load_primary_credentials
 from market_making.ppi.models import timestamp
 from market_making.scenarios.calculation import finite
 from market_making.scenarios.history import annual_chunks, lookback_start, normalize_history
+from market_making.scenarios.account import AccountDataError, select_account, position_rows, normalize_account
 
 
 @dataclass(frozen=True)
@@ -22,7 +26,7 @@ class SpotQuote:
 @dataclass
 class _Job:
     stopped: threading.Event = field(default_factory=threading.Event)
-    client: Client | None = None
+    client: Client | RemarketsClient | None = None
     thread: threading.Thread | None = None
 
 
@@ -31,6 +35,13 @@ ERRORS = {
     "authentication": "PPI login or market-data access failed. Check your credentials and try again.",
     "request": "PPI data could not be fetched. Check the connection and market-data access, then try again.",
     "processing": "PPI returned unusable data or the trading calendar could not be loaded.",
+}
+
+ACCOUNT_ERRORS = {
+    "credentials_unavailable": "reMarkets credentials are unavailable. Set PRIMARY_USER and PRIMARY_PASSWORD in the file selected in Settings.",
+    "authentication": "reMarkets login or account access failed. Check your credentials and try again.",
+    "request": "The reMarkets account could not be fetched. Check the connection and account access, then try again.",
+    "processing": "reMarkets returned unusable account data. No positions were imported.",
 }
 
 
@@ -56,7 +67,7 @@ class ScenarioController:
                     job.client.cancel()
 
     def start(self, kind, env_file, *, reference_date, years=3):
-        if kind not in ("spot", "history"):
+        if kind not in ("spot", "history", "account"):
             raise ValueError("Unknown scenario data request.")
         if kind == "history":
             lookback_start(reference_date, years)
@@ -84,19 +95,51 @@ class ScenarioController:
             client.renew_authentication()
             return client.get(endpoint, params)
 
+    @staticmethod
+    def _primary_read(client, read, recovered):
+        client.ensure_authenticated()
+        try:
+            return read()
+        except PPIError as exc:
+            if str(exc) != "http_failure_401" or recovered[0]:
+                raise
+            recovered[0] = True
+            client.renew_authentication()
+            return read()
+
+    def _account(self, client, env_file, job):
+        recovered = [False]
+        def read(operation):
+            if job.stopped.is_set():
+                raise PPIError("request_cancelled")
+            return self._primary_read(client, operation, recovered)
+        configured = os.environ.get("PRIMARY_ACCOUNT", read_env(env_file).get("PRIMARY_ACCOUNT", "")).strip()
+        account = select_account(read(client.accounts), configured)
+        positions = read(lambda: client.account_read("positions", account))
+        summaries, _ = position_rows(positions)
+        details = read(lambda: client.account_read("details", account))
+        report = read(lambda: client.account_read("report", account))
+        instruments = {symbol: read(lambda symbol=symbol: client.ggal_instrument(symbol)) for symbol in summaries}
+        return normalize_account(account, positions, details, report, instruments)
+
     def _run(self, generation, job, kind, env_file, reference_date, years):
         client = None
         error = None
+        account_error = None
         result = None
         try:
             if job.stopped.is_set():
                 return
-            credentials = load_credentials(env_file)
+            credentials = (load_primary_credentials if kind == "account" else load_credentials)(env_file)
             if not credentials.ready:
                 raise PPIError("credentials_unavailable")
             # Five years span at most six annual chunks, with authentication and
             # one 401 recovery still within a twelve-request/120-second budget.
-            client = Client(credentials, live=True, max_requests=12)
+            if kind == "account":
+                client = RemarketsClient(credentials, live=True, max_requests=32)
+                client.deadline = time.monotonic() + 120
+            else:
+                client = Client(credentials, live=True, max_requests=12)
             with self._lock:
                 job.client = client
                 if job.stopped.is_set():
@@ -104,7 +147,9 @@ class ScenarioController:
                     return
             params = {"Ticker": "GGAL", "Type": "ACCIONES", "Settlement": "INMEDIATA"}
             recovered = [False]
-            if kind == "spot":
+            if kind == "account":
+                result = self._account(client, env_file, job)
+            elif kind == "spot":
                 raw = self._read(client, "MarketData/Current", params, recovered)
                 result = SpotQuote(finite(raw["price"], "PPI spot price", positive=True),
                                    timestamp(raw.get("date")), datetime.now(timezone.utc))
@@ -126,6 +171,8 @@ class ScenarioController:
                 if job.stopped.is_set():
                     return
                 result = normalize_history(records, start, end, completed_before=completed_before)
+        except AccountDataError as exc:
+            account_error = str(exc)
         except PPIError as exc:
             code = str(exc)
             error = ("credentials_unavailable" if code == "credentials_unavailable" else
@@ -143,4 +190,5 @@ class ScenarioController:
                 result, error = None, "request"
             with self._lock:
                 if not job.stopped.is_set() and generation == self.generation:
-                    self.events.put((generation, kind, result, ERRORS.get(error)))
+                    errors = ACCOUNT_ERRORS if kind == "account" else ERRORS
+                    self.events.put((generation, kind, result, errors.get(error) or account_error))

@@ -525,6 +525,7 @@ def self_test(output):
         for expiry, contract in CONTRACTS.items():
             assert app.scenarios.positions[expiry]["maturity"].get() == contract.maturity.date().isoformat()
         scenario_widget_check(app)
+        account_widget_check(app)
         comparison_widget_check(app)
         app.tabs.select(0)
         app.start_demo()
@@ -580,6 +581,7 @@ def self_test(output):
                                            "manual_spot_input_validation": True,
                                            "shared_contract_defaults": True,
                                            "position_scenarios": True, "scenario_calendar": "XBUE",
+                                           "remarkets_account_source": True, "manual_positions_preserved": True,
                                            "scenario_offline_pnl": True, "scenario_histogram": True,
                                            "scenario_late_response_discarded": True,
                                            "variable_horizon": True, "return_pdf": True,
@@ -588,6 +590,39 @@ def self_test(output):
     finally:
         app.close()
     return 0
+
+
+def account_widget_check(app):
+    """Check imported rows and source switching in source and packaged builds."""
+    from dataclasses import replace
+    from datetime import date, datetime, timezone
+    from market_making.scenarios.account import AccountPosition, AccountSnapshot
+
+    tab = app.scenarios
+    manual = tab._position_values()
+    stamp = datetime.now(timezone.utc)
+    snapshot = AccountSnapshot("SELFTEST", (
+        AccountPosition("GGAL/OCT26", 3, 6000, 6125, date(2026, 10, 30)),
+        AccountPosition("GGAL/JUN27", -2, 6900, 6800, date(2027, 6, 30))),
+        3, 160000000, 155000000, 5000000, 0, stamp, stamp, stamp)
+    tab.position_mode.set("reMarkets account")
+    tab.controller.events.put((tab.controller.generation, "account", snapshot, None))
+    tab.poll()
+    app.root.update()
+    assert tab.positions["2026-10"]["contracts"].get() == "3"
+    assert tab.positions["2027-06"]["direction"].get() == "Short"
+    assert all(widget.instate(["disabled"]) for row in tab.positions.values() for widget in row["widgets"].values())
+    assert "3 other instrument(s) excluded" in tab.account_status.get()
+    assert "160,000,000.00" in tab.account_balances.get()
+    tab.position_mode.set("Manual simulation")
+    assert tab._position_values() == manual
+    tab.position_mode.set("reMarkets account")
+    tab.controller.events.put((tab.controller.generation, "account", replace(snapshot, positions=()), None))
+    tab.poll()
+    assert "2027-06" not in tab.positions
+    assert all(row["contracts"].get() == "0" for row in tab.positions.values())
+    tab.position_mode.set("Manual simulation")
+    assert tab._position_values() == manual
 
 
 def comparison_widget_check(app):

@@ -4,7 +4,7 @@ from datetime import date
 import math
 
 from .calendar import advance_sessions
-from market_making.contracts import CONTRACT_SHARES, DAY_BASIS, DEFAULT_EXPIRIES, SYMBOLS
+from market_making.contracts import CONTRACT_SHARES, DAY_BASIS, DEFAULT_EXPIRIES, SYMBOLS, ggal_expiry
 
 
 def finite(value, label, *, positive=False):
@@ -33,6 +33,7 @@ class Position:
     entry_price: float | None = None
     current_price: float | None = None
     maturity: date | None = None
+    symbol: str | None = None  # Additional GGAL expiries imported from the account.
 
 
 @dataclass(frozen=True)
@@ -67,7 +68,9 @@ def calculate(spot, move, positions, reference_date, *, horizon=2, assumed_tna=N
     legs = []
     seen = set()
     for position in positions:
-        if position.expiry not in DEFAULT_EXPIRIES or position.expiry in seen:
+        if ((position.expiry not in DEFAULT_EXPIRIES and ggal_expiry(position.symbol) != position.expiry)
+                or (position.symbol is not None and ggal_expiry(position.symbol) != position.expiry)
+                or position.expiry in seen):
             raise ValueError("Use distinct configured contract positions.")
         seen.add(position.expiry)
         q = position.contracts

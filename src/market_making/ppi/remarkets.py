@@ -1,12 +1,15 @@
 """Read-only, fixed-host REMARKETS simulated futures adapter."""
 import json
 import os
+import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 import requests
 
+from market_making.contracts import ggal_expiry
 from .client import PPIError
 from .config import read_env, status
 from .models import Book, Level, number
@@ -128,7 +131,7 @@ class Client:
         self._transport = DeadlineTransport(self.session)
         self._token = None
         self._renew_at = None
-        self.remaining = min(max_requests, 3)
+        self.remaining = min(max_requests, 32)
         self.deadline = time.monotonic() + 60
 
     def close(self):
@@ -155,7 +158,10 @@ class Client:
     def renew_authentication(self):
         self.login()
 
-    def _request(self, login=False, params=None):
+    def _request(self, login=False, params=None, *, path="/rest/marketdata/get"):
+        if (path not in ("/rest/marketdata/get", "/rest/accounts", "/rest/instruments/detail")
+                and not re.fullmatch(r"/rest/risk/(?:position/getPositions|detailedPosition|accountReport)/[A-Za-z0-9_.-]{1,128}", path)):
+            raise PPIError("forbidden_parameters")
         if not self.live:
             raise PPIError("live_opt_in_required")
         if not self.credentials.ready:
@@ -182,7 +188,7 @@ class Client:
         try:
             remaining = max(.001, self.deadline - time.monotonic())
             response = self.session.request("POST" if login else "GET", BASE_URL +
-                ("/auth/getToken" if login else "/rest/marketdata/get"), headers=headers,
+                ("/auth/getToken" if login else path), headers=headers,
                 params=params, timeout=(min(5, remaining), min(10, remaining)),
                 allow_redirects=False, verify=True, stream=True)
             if response.status_code != 200:
@@ -237,6 +243,20 @@ class Client:
         self._token = None
         self._renew_at = None
         self._request(login=True)
+
+    def accounts(self):
+        return self._request(path="/rest/accounts")
+
+    def account_read(self, kind, account):
+        paths = {"positions": "position/getPositions", "details": "detailedPosition", "report": "accountReport"}
+        if kind not in paths or not isinstance(account, str) or not re.fullmatch(r"[A-Za-z0-9_.-]{1,128}", account):
+            raise PPIError("forbidden_parameters")
+        return self._request(path=f"/rest/risk/{paths[kind]}/{quote(account, safe='')}")
+
+    def ggal_instrument(self, symbol):
+        if ggal_expiry(symbol) is None:
+            raise PPIError("forbidden_parameters")
+        return self._request(path="/rest/instruments/detail", params={"marketId": "ROFX", "symbol": symbol})
 
     def snapshot(self, instrument, *, include_last=False):
         symbol = instrument.get("symbol")

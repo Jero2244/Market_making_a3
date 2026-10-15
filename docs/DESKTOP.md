@@ -92,13 +92,39 @@ uses no network. This tab starts and stops independently of the other screens.
 This screen operates independently of the monitor. Enter GGAL spot manually or
 use **Fetch PPI spot**, which reads the current last-trade price with PPI
 credentials. A current fetch requires today's reference date; for an earlier
-date, enter that date's price manually. Broker holdings are not imported.
+date, enter that date's price manually.
 
-Under **Futures P/L**, enter Long/Short, whole contract count, average entry,
-current futures price and expiry. Zero contracts disables the row. Prices are
+Under **Futures P/L**, choose **Manual simulation** to enter Long/Short, whole
+contract count, average entry, current futures price and expiry. Zero contracts disables the row. Prices are
 ARS/share; shares per contract come from the shared contract settings. The
 October/December defaults are 2026-10-30 and 2026-12-30. Editing a row's expiry
 changes only that scenario, leaving the monitor's defaults unchanged.
+
+Alternatively, select **reMarkets account**, then **Load / refresh account**.
+This uses PRIMARY_USER and PRIMARY_PASSWORD from the credentials file selected
+in Settings. A sole available account is selected automatically, including after
+changing logins. If the login has several accounts, set PRIMARY_ACCOUNT in that
+file. Every refresh rereads the credentials; no restart is required.
+
+The import fills signed contract quantities, the API's average entry basis,
+account market prices and instrument expiry dates. Only exact outright GGAL
+future symbols are included: GGAL stock, GGAL options and all other instruments
+are excluded. Additional GGAL expiries appear as rows after checking instrument
+identity, ARS currency and the configured shares per contract against reMarkets.
+The current import limit is 24 distinct GGAL expiries.
+
+Account rows are read-only snapshots. **Use as manual simulation** copies the
+loaded rows into editable inputs. Switching between sources otherwise preserves
+your separate manual entries. Empty account refreshes clear old positions;
+failed or cancelled refreshes do not retain the previous imported holdings.
+Changing the credentials file also clears the imported snapshot.
+
+Cash, available funds, margin and collateral cover the whole simulated account,
+including excluded instruments. Both report calculation times and receipt time
+are shown. Account market prices are risk-report valuations, which may be older
+than the request. API entry bases may reset after daily settlement. Missing
+prices remain blank; use a manual simulation to supply them before calculating.
+GGAL spot and historical probability data still use the separate PPI controls.
 
 **Copy simulated futures** imports valid bid/ask midpoints from the monitor's
 latest snapshot. It keeps a simulated/synthetic source label and receipt time.

@@ -50,6 +50,9 @@ class ScenarioTab(ttk.Frame):
         self.pending_kind = None
         self._programmatic = False
         self._closed = False
+        self.account_snapshot = None
+        self._manual_positions = None
+        self._active_position_mode = "Manual simulation"
         # Scroll at smaller window sizes without hiding the histogram or notes.
         viewport = tk.Canvas(self, background="#f3f5f9", highlightthickness=0)
         scrollbar = ttk.Scrollbar(self, orient="vertical", command=viewport.yview)
@@ -65,6 +68,7 @@ class ScenarioTab(ttk.Frame):
         viewport.bind("<MouseWheel>", wheel)
         self.viewport = viewport
         self._layout(body)
+        self._env_trace = self.env_variable.trace_add("write", self._credentials_changed)
         if self.caucion_variable is not None:
             self._caucion_trace = self.caucion_variable.trace_add("write", self._caucion_changed)
             self._caucion_changed()
@@ -78,7 +82,7 @@ class ScenarioTab(ttk.Frame):
 
     def _layout(self, body):
         ttk.Label(body, text="Position scenarios", style="CardTitle.TLabel").pack(anchor="w")
-        ttk.Label(body, text=f"Manual positions / {CONTRACT_SHARES} shares per contract / ARS per share",
+        ttk.Label(body, text=f"GGAL futures / {CONTRACT_SHARES} shares per contract / ARS per share",
                   style="Muted.TLabel").pack(anchor="w", pady=(2, 8))
         controls = ttk.Frame(body)
         controls.pack(fill="x", pady=(0, 4))
@@ -121,6 +125,20 @@ class ScenarioTab(ttk.Frame):
         self.views.add(positions_body, text="Futures P/L")
         self.views.add(distribution_body, text="Return distribution")
         self.views.select(distribution_body)
+        position_controls = ttk.Frame(positions_body)
+        position_controls.pack(fill="x", pady=(0, 5))
+        self.position_mode = tk.StringVar(value="Manual simulation")
+        ttk.Label(position_controls, text="Position source").pack(side="left", padx=(0, 8))
+        for mode in ("Manual simulation", "reMarkets account"):
+            ttk.Radiobutton(position_controls, text=mode, value=mode, variable=self.position_mode).pack(side="left", padx=(0, 10))
+        self.account_button = ttk.Button(position_controls, text="Load / refresh account", command=lambda: self.fetch("account"), state="disabled")
+        self.account_button.pack(side="left")
+        self.account_simulation_button = ttk.Button(position_controls, text="Use as manual simulation", command=self.account_to_manual, state="disabled")
+        self.account_simulation_button.pack(side="left", padx=8)
+        self.account_status = tk.StringVar(value="Manual simulation. Switch to reMarkets account to load GGAL futures using Settings credentials.")
+        self.account_balances = tk.StringVar()
+        for variable in (self.account_status, self.account_balances):
+            ttk.Label(positions_body, textvariable=variable, style="Muted.TLabel", wraplength=920).pack(anchor="w", pady=(0, 4))
         rate_controls = ttk.Frame(positions_body)
         rate_controls.pack(fill="x", pady=(0, 5))
         self.assumed_tna = tk.StringVar()
@@ -133,37 +151,9 @@ class ScenarioTab(ttk.Frame):
                   style="Muted.TLabel").pack(side="left", padx=10)
         self.rate_source = tk.StringVar(value="Enter your assumed projection rate, or copy the caucion rate from GGAL arbitrage.")
         ttk.Label(positions_body, textvariable=self.rate_source, style="Muted.TLabel", wraplength=920).pack(anchor="w", pady=(0, 5))
-        rows = ttk.Frame(positions_body)
-        rows.pack(fill="x", pady=(0, 5))
-        columns = ("Future", "Direction", "Contracts", "Average entry", "Current price", "Expiry (YYYY-MM-DD)")
-        for column, label in enumerate(columns):
-            rows.columnconfigure(column, weight=1)
-            ttk.Label(rows, text=label, style="Muted.TLabel").grid(row=0, column=column, sticky="w", padx=4)
-        self.positions = {}
-        for row, (expiry, maturity) in enumerate(DEFAULT_EXPIRIES.items(), 1):
-            values = {"direction": tk.StringVar(value="Long"), "contracts": tk.StringVar(value="0"),
-                      "entry": tk.StringVar(), "current": tk.StringVar(),
-                      "maturity": tk.StringVar(value=maturity.isoformat()),
-                      "source": tk.StringVar(value="Manual futures price")}
-            self.positions[expiry] = values
-            ttk.Label(rows, text=CONTRACTS[expiry].label).grid(
-                row=row, column=0, sticky="w", padx=4, pady=4)
-            widgets = {}
-            for column, key in enumerate(("direction", "contracts", "entry", "current", "maturity"), 1):
-                widget = (ttk.Combobox(rows, textvariable=values[key], values=("Long", "Short"),
-                                       state="readonly", width=8) if key == "direction" else
-                          ttk.Entry(rows, textvariable=values[key], width=13 if key != "contracts" else 9))
-                widget.grid(row=row, column=column, sticky="ew", padx=4, pady=4)
-                widget.bind("<Return>", lambda _: self.recalculate())
-                widgets[key] = widget
-            values["widgets"] = widgets
-            values["contracts"].trace_add("write", lambda *_, expiry=expiry: self._quantity_changed(expiry))
-            values["current"].trace_add("write", lambda *_, expiry=expiry: self._future_edited(expiry))
-            for key in ("direction", "entry", "maturity"):
-                values[key].trace_add("write", lambda *_: self._inputs_changed())
-            self._set_row_state(expiry)
-        for values in self.positions.values():
-            ttk.Label(positions_body, textvariable=values["source"], style="Muted.TLabel", wraplength=920).pack(anchor="w")
+        self.position_rows = ttk.Frame(positions_body)
+        self.position_rows.pack(fill="x", pady=(0, 5))
+        self._render_positions(self._default_positions())
 
         self.summary = tk.StringVar(value="Enter spot and your active positions, then click Calculate.")
         ttk.Label(positions_body, textvariable=self.summary, foreground=BLUE, wraplength=920).pack(anchor="w", pady=(8, 5))
@@ -206,7 +196,7 @@ class ScenarioTab(ttk.Frame):
                      state="readonly", width=4).pack(side="left")
         self.history_button = ttk.Button(history_controls, text="Fetch / refresh PPI history", command=lambda: self.fetch("history"))
         self.history_button.pack(side="left", padx=10)
-        self.fetch_status = tk.StringVar(value="PPI reads start only when you click Fetch. Inputs stay in this session.")
+        self.fetch_status = tk.StringVar(value="Data reads start when you click Fetch or Load. Inputs stay in this session.")
         ttk.Label(positions_body, textvariable=self.fetch_status, style="Muted.TLabel", wraplength=920).pack(anchor="w", pady=5)
         ttk.Label(distribution_body, textvariable=self.fetch_status, style="Muted.TLabel", wraplength=920).pack(anchor="w", pady=(4, 2))
         range_controls = ttk.Frame(distribution_body)
@@ -250,13 +240,128 @@ class ScenarioTab(ttk.Frame):
         self.range_upper.trace_add("write", lambda *_: self.refresh_frequency())
         self.reference_date.trace_add("write", lambda *_: self._history_inputs_changed())
         self.years.trace_add("write", lambda *_: self._history_inputs_changed())
+        self.position_mode.trace_add("write", self._position_mode_changed)
         self.spot_entry.bind("<Return>", lambda _: self.recalculate())
+
+    @staticmethod
+    def _default_positions():
+        return {expiry: {"direction": "Long", "contracts": "0", "entry": "", "current": "",
+                         "maturity": maturity.isoformat(), "source": "Manual futures price",
+                         "symbol": CONTRACTS[expiry].symbol, "label": CONTRACTS[expiry].month_label}
+                for expiry, maturity in DEFAULT_EXPIRIES.items()}
+
+    def _position_values(self):
+        return {expiry: {**{key: row[key].get() for key in ("direction", "contracts", "entry", "current", "maturity", "source")},
+                         "symbol": row["symbol"], "label": row["label"]} for expiry, row in self.positions.items()}
+
+    def _render_positions(self, data):
+        for widget in self.position_rows.winfo_children():
+            widget.destroy()
+        self.positions = {}
+        columns = ("Future", "Direction", "Contracts", "Average entry", "Current price", "Expiry (YYYY-MM-DD)")
+        for column, label in enumerate(columns):
+            self.position_rows.columnconfigure(column, weight=1)
+            ttk.Label(self.position_rows, text=label, style="Muted.TLabel").grid(row=0, column=column, sticky="w", padx=4)
+        for index, (expiry, record) in enumerate(sorted(data.items())):
+            row = 2 * index + 1
+            values = {key: tk.StringVar(value=record[key]) for key in ("direction", "contracts", "entry", "current", "maturity", "source")}
+            values.update(symbol=record["symbol"], label=record["label"], widgets={})
+            self.positions[expiry] = values
+            ttk.Label(self.position_rows, text=record["symbol"]).grid(row=row, column=0, sticky="w", padx=4, pady=4)
+            for column, key in enumerate(("direction", "contracts", "entry", "current", "maturity"), 1):
+                widget = (ttk.Combobox(self.position_rows, textvariable=values[key], values=("Long", "Short"), width=8)
+                          if key == "direction" else ttk.Entry(self.position_rows, textvariable=values[key], width=13 if key != "contracts" else 9))
+                widget.grid(row=row, column=column, sticky="ew", padx=4, pady=4)
+                widget.bind("<Return>", lambda _: self.recalculate())
+                values["widgets"][key] = widget
+            ttk.Label(self.position_rows, textvariable=values["source"], style="Muted.TLabel", wraplength=900).grid(
+                row=row + 1, column=0, columnspan=6, sticky="w", padx=4)
+            values["contracts"].trace_add("write", lambda *_, expiry=expiry: self._quantity_changed(expiry))
+            values["current"].trace_add("write", lambda *_, expiry=expiry: self._future_edited(expiry))
+            for key in ("direction", "entry", "maturity"):
+                values[key].trace_add("write", lambda *_: self._inputs_changed())
+            self._set_row_state(expiry)
+        if hasattr(self, "table"):
+            self.table.configure(height=min(10, max(3, len(data) + 1)))
+
+    def _position_mode_changed(self, *_):
+        mode = self.position_mode.get()
+        if mode == self._active_position_mode:
+            return
+        self._active_position_mode = mode
+        account_mode = self.position_mode.get() == "reMarkets account"
+        if self.pending_kind == "account":
+            self.cancel()
+        if account_mode:
+            self._manual_positions = self._position_values()
+            self._render_positions(self._default_positions())
+            self.account_status.set("Click Load / refresh account to import simulated GGAL futures. Other instruments are excluded.")
+            if self.account_snapshot is not None:
+                self._apply_account(self.account_snapshot)
+        else:
+            self._render_positions(self._manual_positions or self._default_positions())
+            self.account_status.set("Manual simulation. Edit direction, contracts and prices; your manual inputs are kept when switching sources.")
+            self.account_balances.set("")
+        self.account_button.configure(state="normal" if account_mode else "disabled")
+        self.copy_button.configure(state="disabled" if account_mode else "normal")
+        self.account_simulation_button.configure(state="normal" if account_mode and self.account_snapshot is not None else "disabled")
+        self._inputs_changed()
+
+    def _credentials_changed(self, *_):
+        if self._closed:
+            return
+        if self.pending_kind is not None:
+            self.cancel()
+        self.account_snapshot = None
+        self.account_balances.set("")
+        self.account_simulation_button.configure(state="disabled")
+        if self.position_mode.get() == "reMarkets account":
+            self._render_positions(self._default_positions())
+            self.account_status.set("Credentials file changed. Load the account to use the new login.")
+            self._inputs_changed()
+
+    def _apply_account(self, snapshot):
+        data = self._default_positions()
+        for record in data.values():
+            record["source"] = "No open GGAL position in this account."
+        stamp = (snapshot.positions_calculated_at.astimezone(BA).strftime("%Y-%m-%d %H:%M:%S Buenos Aires")
+                 if snapshot.positions_calculated_at else "calculation time unknown")
+        for position in snapshot.positions:
+            data[position.expiry] = {"symbol": position.symbol, "label": position.symbol,
+                "direction": "Long" if position.contracts > 0 else "Short", "contracts": str(abs(position.contracts)),
+                "entry": "" if position.entry_price is None else format(position.entry_price, ".15g"),
+                "current": "" if position.current_price is None else format(position.current_price, ".15g"),
+                "maturity": position.maturity.isoformat(),
+                "source": f"{position.symbol} / reMarkets account market price / {stamp}. {position.note}"}
+        self._render_positions(data)
+        self.account_status.set(f"{snapshot.account} / simulated account / {len(snapshot.positions)} open GGAL future(s); "
+                                f"{snapshot.ignored_instruments} other instrument(s) excluded. "
+                                f"Received {snapshot.received_at.astimezone(BA):%Y-%m-%d %H:%M:%S Buenos Aires}.")
+        stamp = (snapshot.calculated_at.astimezone(BA).strftime("%Y-%m-%d %H:%M:%S Buenos Aires")
+                 if snapshot.calculated_at else "calculation time unknown")
+        self.account_balances.set(f"Whole account (all instruments): cash {money(snapshot.current_cash)} | available to operate {money(snapshot.available)} | "
+                                  f"margin {money(snapshot.margin)} | collateral {money(snapshot.collateral)}. ARS / calculated {stamp}.")
+        self.account_simulation_button.configure(state="normal")
+        self._inputs_changed()
+
+    def account_to_manual(self):
+        if self.position_mode.get() != "reMarkets account" or self.account_snapshot is None:
+            return
+        data = self._position_values()
+        for row in data.values():
+            row["source"] = "Copied from reMarkets / editable manual simulation"
+        self.position_mode.set("Manual simulation")
+        self._render_positions(data)
+        self._inputs_changed()
 
     def _set_row_state(self, expiry):
         row = self.positions[expiry]
         quantity = row["contracts"].get().strip()
         inactive = bool(quantity) and not quantity.strip("0")
         for key, widget in row["widgets"].items():
+            if self.position_mode.get() == "reMarkets account":
+                widget.configure(state="disabled")
+                continue
             if key != "contracts":
                 widget.configure(state="disabled" if inactive else "readonly" if key == "direction" else "normal")
 
@@ -266,7 +371,7 @@ class ScenarioTab(ttk.Frame):
 
     def _future_edited(self, expiry):
         if not self._programmatic:
-            self.positions[expiry]["source"].set(CONTRACTS[expiry].month_label + " / Manual futures price")
+            self.positions[expiry]["source"].set(self.positions[expiry]["label"] + " / Manual futures price")
         self._inputs_changed()
 
     def _spot_edited(self, *_):
@@ -421,6 +526,8 @@ class ScenarioTab(ttk.Frame):
     def recalculate(self):
         self._inputs_changed()
         try:
+            if self.position_mode.get() == "reMarkets account" and (self.account_snapshot is None or self.pending_kind == "account"):
+                raise ValueError("Load the reMarkets account before calculating its positions.")
             positions = []
             for expiry, row in self.positions.items():
                 text = row["contracts"].get().strip()
@@ -432,7 +539,8 @@ class ScenarioTab(ttk.Frame):
                 positions.append(Position(expiry, quantity * (-1 if row["direction"].get() == "Short" else 1),
                                           numeric(row["entry"].get()) if quantity else None,
                                           numeric(row["current"].get()) if quantity else None,
-                                          date.fromisoformat(row["maturity"].get().strip()) if quantity else None))
+                                          date.fromisoformat(row["maturity"].get().strip()) if quantity else None,
+                                          symbol=row["symbol"]))
             days = self.horizon_days()
             text = self.assumed_tna.get().strip()
             assumption = finite(numeric(text), "assumed future TNA") if text else None
@@ -447,7 +555,7 @@ class ScenarioTab(ttk.Frame):
                          f"projected spot {money(result.projected_spot)} ARS / "
                          + ("using current implied TNAs" if assumption is None else f"assumed future TNA {assumption:g}%"))
         for leg in result.legs:
-            self.table.insert("", "end", values=(CONTRACTS[leg.expiry].month_label,
+            self.table.insert("", "end", values=(self.positions[leg.expiry]["label"],
                                                    money(leg.implied_tna) + ("%" if leg.implied_tna is not None else ""),
                                                    money(leg.projection_tna) + ("%" if leg.projection_tna is not None else ""),
                                                    money(leg.projected_future), money(leg.from_today, signed=True),
@@ -459,6 +567,9 @@ class ScenarioTab(ttk.Frame):
         self.refresh_frequency()
 
     def copy_simulated(self):
+        if self.position_mode.get() == "reMarkets account":
+            self.fetch_status.set("Use as manual simulation to change imported futures prices.")
+            return
         prices = simulated_midpoints(self.get_reports())
         if not prices:
             self.fetch_status.set("No valid simulated futures snapshot is available. Run the arbitrage checker or enter prices manually.")
@@ -479,20 +590,35 @@ class ScenarioTab(ttk.Frame):
             reference = self.as_of()
             if reference > today():
                 raise ValueError("Use today's date or an earlier date for a PPI data request.")
+            if kind == "account" and self.position_mode.get() != "reMarkets account":
+                raise ValueError("Select reMarkets account to load its positions.")
+            if kind == "account" and reference != today():
+                raise ValueError("Account positions are current. Use today's reference date to load the account.")
             if kind == "spot" and reference != today():
                 raise ValueError("PPI spot is a current price. Use today's reference date or enter a historical spot manually.")
-            self.controller.start(kind, Path(self.env_variable.get()), reference_date=reference, years=int(self.years.get()))
+            self.controller.start(kind, Path(self.env_variable.get()), reference_date=reference,
+                                  years=int(self.years.get()) if kind == "history" else 3)
         except (ValueError, OverflowError) as exc:
             self.fetch_status.set(str(exc))
             return
         self.pending_kind = kind
+        if kind == "account":
+            self.account_snapshot = None
+            self.account_balances.set("")
+            self.account_simulation_button.configure(state="disabled")
+            self._render_positions(self._default_positions())
+            self.account_status.set("Loading the simulated account and filtering GGAL futures...")
+            self._inputs_changed()
         if kind == "history":
             self.history = None
             self.refresh_frequency()
         self.cancel_button.configure(state="normal")
-        self.fetch_status.set("Fetching PPI " + ("last-trade spot..." if kind == "spot" else "daily GGAL history..."))
+        self.fetch_status.set("Fetching reMarkets simulated account..." if kind == "account" else
+                              "Fetching PPI " + ("last-trade spot..." if kind == "spot" else "daily GGAL history..."))
 
     def cancel(self):
+        if self.pending_kind == "account":
+            self.account_status.set("Account load cancelled. Click Load / refresh account to try again.")
         self.controller.cancel()
         self.pending_kind = None
         self.cancel_button.configure(state="disabled")
@@ -510,6 +636,13 @@ class ScenarioTab(ttk.Frame):
                 self.cancel_button.configure(state="disabled")
                 if error:
                     self.fetch_status.set(error)
+                    if kind == "account":
+                        self.account_status.set(error)
+                elif kind == "account":
+                    if self.position_mode.get() == "reMarkets account":
+                        self.account_snapshot = result
+                        self._apply_account(result)
+                        self.fetch_status.set("reMarkets GGAL positions loaded. Set GGAL spot and scenario assumptions, then click Calculate.")
                 elif kind == "spot":
                     self._programmatic = True
                     try:
@@ -727,6 +860,7 @@ class ScenarioTab(ttk.Frame):
 
     def close(self):
         self._closed = True
+        self.env_variable.trace_remove("write", self._env_trace)
         if self.caucion_variable is not None:
             self.caucion_variable.trace_remove("write", self._caucion_trace)
         self.controller.cancel()
