@@ -12,7 +12,7 @@ from market_making.contracts import CONTRACTS, DAY_BASIS
 from market_making.desktop.controller import MonitorController, WatchOptions, default_env_file
 from market_making.desktop.scenario_tab import ScenarioTab
 from market_making.desktop.comparison_tab import ComparisonTab
-from market_making.ppi import monitor
+from market_making.ppi import monitor, remarkets_stream
 from market_making.ppi.models import ManualSpotQuote
 
 BG = "#f3f5f9"
@@ -46,7 +46,7 @@ def best(book, side):
 class DesktopApp:
     def __init__(self, root):
         self.root = root
-        self.controller = MonitorController()
+        self.controller = MonitorController(stream_source=remarkets_stream.acquire)
         self.reports = []
         self.received_at = None
         self.received_monotonic = None
@@ -115,10 +115,11 @@ class DesktopApp:
         self.rate_entry = ttk.Entry(inputs, textvariable=self.rate, width=10)
         self.rate_entry.pack(side="left", padx=(8, 18))
         ttk.Label(inputs, text="Refresh (seconds)").pack(side="left")
-        self.interval = tk.StringVar(value="5")
+        self.interval = tk.StringVar(value="2")
         self.interval_entry = ttk.Entry(inputs, textvariable=self.interval, width=8)
         self.interval_entry.pack(side="left", padx=8)
-        ttk.Label(inputs, text="Blank rate = unknown. Demo refreshes every 2s.", style="Muted.TLabel").pack(side="right")
+        ttk.Label(inputs, text="Blank rate = unknown. Futures stream live; with manual spot, cards update on change.",
+                  style="Muted.TLabel").pack(side="right")
         self.env = tk.StringVar(value=str(default_env_file()))
         self.config = tk.StringVar()
         self.manual = tk.BooleanVar(value=False)
@@ -477,10 +478,10 @@ def self_test(output):
     root.withdraw()
     app = DesktopApp(root)
     try:
-        assert app.interval.get() == "5"
+        assert app.interval.get() == "2"
         app.interval.set("1")
         assert app.options().interval == 1
-        app.interval.set("5")
+        app.interval.set("2")
         app.manual_spot_enabled.set(True)
         app.toggle_manual_spot()
         app.manual_spot_fields["bid"].set("99,5")
@@ -573,7 +574,7 @@ def self_test(output):
         assert app.state.get() == "Stopped"
         Path(output).write_text(json.dumps({"ok": True, "tk": tk.TkVersion, "demo_scenarios": 4,
                                            "start_stop": True, "live_minimum_seconds": 1,
-                                           "live_default_seconds": 5, "futures_helper_tabs": 3,
+                                           "live_default_seconds": 2, "futures_helper_tabs": 3,
                                            "real_vs_remarkets": True,
                                            "comparison_contracts": list(app.comparison.rows),
                                            "manual_spot_during_monitoring": True,

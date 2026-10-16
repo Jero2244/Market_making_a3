@@ -1,6 +1,34 @@
 # Refresh and connection behavior
 
-Live monitoring defaults to five seconds and accepts intervals of at least one
+## Shared reMarkets stream (2026-10-15)
+
+The desktop carry monitor and the Real vs reMarkets tab share one reMarkets
+WebSocket (`ppi/remarkets_stream.py`) per set of Primary credentials: one
+login, one `smd` subscription covering every symbol either screen needs. Each
+`Md` frame replaces the BI/OF/LA entries it carries. A ping every two seconds
+confirms the connection; because frames and pongs share one ordered
+connection, an unchanged book is treated as current as of the latest pong.
+That is receipt confirmation, not exchange freshness.
+
+Without a frame or pong for five seconds the stream is unhealthy: its books
+are dropped, both screens fall back to the REST polling described below, and
+they return to the stream once it reconnects (1–30-second backoff, fresh login
+every 23 hours). With manual spot, the carry monitor recalculates on each
+futures change, at most five times per second; with PPI spot it polls spot at
+the chosen interval (default two seconds) and reads futures from the stream.
+
+reMarkets answered HTTP 401 to a login 0.5 seconds after another and accepted
+one 3 seconds later (2026-10-15). All logins in the process are therefore spaced
+at least two seconds apart, so concurrent screens, restarts and account
+refreshes are not reported as bad credentials.
+
+After hours on 2026-10-15, the stream delivered all four books about 50 ms
+after subscribing and pongs returned in about 70 ms. Update behavior during
+trading still needs a market-hours check.
+
+## REST polling (fallback and console)
+
+Live monitoring polls at the chosen interval and accepts intervals of at least one
 second. Demo refreshes every two seconds. Request duration counts toward the
 chosen interval; slow cycles do not overlap. This setting is not a measured or
 verified broker rate allowance.

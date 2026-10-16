@@ -6,10 +6,13 @@ from queue import Queue
 import math
 import sys
 import threading
+import time
 
 from market_making.paths import PROJECT_ROOT
 from market_making.ppi import monitor
 from market_making.ppi.models import ManualSpotQuote, timestamp
+
+MIN_STREAM_GAP = .2  # Seconds; caps change-driven redraws at five per second.
 
 
 def default_env_file():
@@ -48,7 +51,9 @@ class WatchOptions:
 class MonitorController:
     """Single worker with interruptible waits and sanitized queue messages."""
 
-    def __init__(self):
+    def __init__(self, stream_source=None):
+        # Optional callable(primary_credentials, symbols) -> shared stream lease.
+        self.stream_source = stream_source
         self.events = Queue()
         self._stop = threading.Event()
         self._thread = None
@@ -89,7 +94,7 @@ class MonitorController:
     def _run(self, options):
         mode = "DEMO" if options.demo else "LIVE-PROXY"
         cycle = 0
-        session = None
+        session = lease = None
         failures = 0
 
         def failed(reason):
@@ -111,13 +116,22 @@ class MonitorController:
                 if (options.manual_spot is None and not credentials.ready) or not primary.ready:
                     self.events.put(("reports", failed("credentials_unavailable")))
                     return
-                session = monitor.WatchSession(credentials, primary)
+                if self.stream_source is not None:
+                    lease = self.stream_source(primary, [item["symbol"] for item in config["futures"]])
+                    # Give the shared stream a moment so startup needs no extra REST login.
+                    for _ in range(40):
+                        if lease.healthy() or self._stop.wait(.1):
+                            break
+                session = monitor.WatchSession(credentials, primary, stream=lease)
                 self._session = session
                 if self._stop.is_set():
                     session.cancel()
             while not self._stop.is_set():
                 cycle += 1
-                self.events.put(("status", "Checking prices..."))
+                version = lease.version if lease is not None else None
+                cycle_started = time.monotonic()
+                if lease is None or not lease.healthy():
+                    self.events.put(("status", "Checking prices..."))
                 stop_on_error = False
                 try:
                     reports = (monitor.demo_cycle(cycle, manual_check=options.manual_check,
@@ -142,9 +156,18 @@ class MonitorController:
                 delay, failures = monitor.refresh_delay(reports, options.interval, failures)
                 duration = reports[0].get("acquisition_seconds")
                 timing = f" / last read {duration:.2f}s" if duration is not None else ""
+                streaming = lease is not None and lease.healthy()
+                # Streamed futures cost no requests. With manual spot nothing else
+                # is polled, so refresh as soon as a futures book changes.
+                on_change = streaming and not failures and self.get_manual_spot() is not None
                 self.events.put(("status", (f"Provider backoff / retry in {delay:g}s" if failures else
-                                             f"Monitoring / refresh every {options.interval:g}s") + timing))
-                if self._stop.wait(delay):
+                                             "Streaming futures / updates on change" if on_change else
+                                             f"Monitoring / refresh every {options.interval:g}s"
+                                             + (" / streamed futures" if streaming else "")) + timing))
+                if on_change:
+                    if self._wait_for_change(lease, version, cycle_started, delay):
+                        break
+                elif self._stop.wait(delay):
                     break
         except Exception:
             # Neither remote exception text nor local config contents belong in the UI.
@@ -155,5 +178,20 @@ class MonitorController:
                 if session is not None:
                     session.close()
             finally:
+                if lease is not None:
+                    lease.release()
                 self._session = None
                 self.events.put(("finished", None))
+
+    def _wait_for_change(self, lease, version, cycle_started, delay):
+        """True when stopped. Returns on a newer stream version, at most every
+        MIN_STREAM_GAP seconds, or after `delay` without one."""
+        deadline = time.monotonic() + delay
+        earliest = cycle_started + MIN_STREAM_GAP
+        while not self._stop.is_set():
+            now = time.monotonic()
+            if now >= deadline or (now >= earliest and lease.version != version):
+                return False
+            if self._stop.wait(.05):
+                return True
+        return True

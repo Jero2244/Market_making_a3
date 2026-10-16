@@ -12,7 +12,8 @@ from .client import Client, PPIError
 from .config import load_credentials
 from .models import Book, Level, ManualSpotQuote, number, parse_book, timestamp
 from .monitor_config import TARGETS, SYMBOLS, load_watch_config, default_watch_config
-from .remarkets import Client as RemarketsClient, load_credentials as load_primary_credentials, parse_snapshot
+from .remarkets import (Client as RemarketsClient, RequestIdentity, Snapshot,
+                        load_credentials as load_primary_credentials, parse_snapshot)
 
 NO_EDGE = "SIN ARBITRAJE TEORICO"
 EDGE = "ARBITRAJE TEORICO DISPONIBLE"
@@ -321,11 +322,26 @@ class WatchSession:
     Tokens stay in memory. No former-cycle book is cached.
     """
 
-    def __init__(self, credentials, primary_credentials):
+    def __init__(self, credentials, primary_credentials, stream=None):
         self.credentials = credentials
         self.primary_credentials = primary_credentials
+        self.stream = stream  # Optional shared reMarkets WebSocket books.
         self.client = self.primary = self.executor = None
         self.cancelled = threading.Event()
+
+    def _streamed_books(self, config):
+        """Every futures book from a healthy stream, or None to read REST."""
+        if self.stream is None:
+            return None
+        books = []
+        for instrument in config["futures"]:
+            latest = self.stream.latest(instrument["symbol"])
+            if latest is None:
+                return None
+            raw, _, receipt = latest
+            books.append(parse_snapshot(Snapshot(raw, RequestIdentity("ROFX", instrument["symbol"])), instrument,
+                                        receipt=receipt, max_age=config["max_age_seconds"]))
+        return books
 
     def cancel(self):
         self.cancelled.set()
@@ -385,6 +401,9 @@ class WatchSession:
 
         def futures_read():
             self._check_cancelled()
+            streamed = self._streamed_books(config)
+            if streamed is not None:
+                return streamed
             self.primary.begin_watch_cycle()
             self.primary.ensure_authenticated()
             recovery = [False]

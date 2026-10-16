@@ -62,9 +62,11 @@ def demo_quotes(cycle, now):
 
 class ComparisonController:
     def __init__(self, *, a3_factory=a3.Client, remarkets_factory=remarkets.Client,
-                 clock=time.monotonic):
+                 clock=time.monotonic, stream_source=None):
         self.a3_factory = a3_factory
         self.remarkets_factory = remarkets_factory
+        # Optional callable(credentials, symbols) -> shared reMarkets stream lease.
+        self.stream_source = stream_source
         self.clock = clock
         self.lock = threading.RLock()
         self.generation = 0
@@ -121,7 +123,7 @@ class ComparisonController:
     def _current(self, generation):
         return generation == self.generation and not self._stop.is_set()
 
-    def _publish(self, generation, source, observations):
+    def _publish(self, generation, source, observations, status=None):
         with self.lock:
             if not self._current(generation):
                 return
@@ -131,7 +133,7 @@ class ComparisonController:
                 previous = self.quotes[source].get(quote.symbol)
                 if previous is None or previous.received_monotonic <= quote.received_monotonic:
                     self.quotes[source][quote.symbol] = quote
-            self.statuses[source] = "Synthetic demo" if self.options.demo else "Connected"
+            self.statuses[source] = status or ("Synthetic demo" if self.options.demo else "Connected")
 
     def _invalidate(self, generation, source, message, *, fatal=False):
         with self.lock:
@@ -229,8 +231,24 @@ class ComparisonController:
             if not stop.is_set() and stop.wait(backoff(failures)):
                 break
 
+    def _streamed(self, generation, stop, lease):
+        """Publish shared WebSocket books until stopped or the stream is unhealthy."""
+        version = None
+        while not stop.is_set() and lease.healthy():
+            quotes = []
+            for symbol in SYMBOLS:
+                latest = lease.latest(symbol)
+                if latest is None:
+                    continue
+                raw, received, receipt = latest
+                quotes.append(remarkets_quote(remarkets.Snapshot(raw, remarkets.RequestIdentity("ROFX", symbol)),
+                                              symbol, now=received, receipt=receipt))
+            self._publish(generation, "reMarkets", quotes, "Streaming")
+            version = lease.wait(version, .25)
+
     def _simulated(self, generation, stop, options):
         failures = 0
+        lease = None
         try:
             from market_making.desktop.controller import default_env_file
             credentials = remarkets.load_credentials(options.env_file or default_env_file())
@@ -238,7 +256,16 @@ class ComparisonController:
                 self._invalidate(generation, "reMarkets",
                                  "Choose a credentials file in Settings with PRIMARY_USER and PRIMARY_PASSWORD.", fatal=True)
                 return
+            if self.stream_source is not None:
+                lease = self.stream_source(credentials, SYMBOLS)
+                # Give the shared stream a moment so startup needs no extra REST login.
+                for _ in range(40):
+                    if lease.healthy() or stop.wait(.1):
+                        break
             while not stop.is_set():
+                if lease is not None and lease.healthy():
+                    self._streamed(generation, stop, lease)
+                    continue
                 client = None
                 try:
                     client = self.remarkets_factory(credentials, live=True)
@@ -266,6 +293,8 @@ class ComparisonController:
                             quote = remarkets_quote(raw, symbol, now=finished, acquisition_seconds=finished - started)
                             self._publish(generation, "reMarkets", (quote,))
                         failures = 0
+                        if lease is not None and lease.healthy():
+                            break  # The stream recovered; stop polling.
                         if stop.wait(max(0, 1 - (self.clock() - cycle_started))):
                             break
                 except PPIError as exc:
@@ -280,7 +309,12 @@ class ComparisonController:
                 finally:
                     if client is not None:
                         self._release(client)
+                if lease is not None and lease.healthy():
+                    continue
                 if not stop.is_set() and stop.wait(backoff(failures)):
                     break
         except Exception:
             self._invalidate(generation, "reMarkets", "reMarkets could not process prices. Check Settings and restart.", fatal=True)
+        finally:
+            if lease is not None:
+                lease.release()

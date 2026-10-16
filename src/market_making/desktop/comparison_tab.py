@@ -6,6 +6,7 @@ from tkinter import ttk
 from market_making.comparison.controller import ComparisonController, Options
 from market_making.comparison.models import DEFAULT_INSTRUMENTS
 from market_making.contracts import BA
+from market_making.ppi import remarkets_stream
 
 BG = "#f3f5f9"
 INK = "#17243b"
@@ -21,13 +22,14 @@ class ComparisonTab(ttk.Frame):
     def __init__(self, parent, *, env_variable, open_settings):
         super().__init__(parent, padding=(16, 14))
         self.env_variable = env_variable
-        self.controller = ComparisonController()
+        self.controller = ComparisonController(stream_source=remarkets_stream.acquire)
         self.min_ticks = tk.StringVar(value="1")
         self.max_age = tk.StringVar(value="10")
         self.notice = tk.StringVar(value="Start to compare real GGAL, RFX20 and WTI futures with the reMarkets book.")
         self.sources = tk.StringVar(value="A3: Stopped   |   reMarkets: Stopped")
         self.summary = tk.StringVar(value="No qualifying difference")
         self.rows = {}
+        self._rendered = {}
         self.last_state = None
         self.display_delays = []
         self.viewport = tk.Canvas(self, background=BG, highlightthickness=0)
@@ -184,7 +186,11 @@ class ComparisonTab(ttk.Frame):
                         self._displayed[source, row["symbol"]] = marker
                         self.display_delays.append(age)
                         self.display_delays = self.display_delays[-200:]
-                widgets["table"].item(source, values=values, tags=("old",) if old else ())
+                # Redrawing an unchanged Treeview row every 100 ms is wasted Tk work.
+                rendered = (values, old)
+                if self._rendered.get((row["symbol"], source)) != rendered:
+                    self._rendered[row["symbol"], source] = rendered
+                    widgets["table"].item(source, values=values, tags=("old",) if old else ())
             for difference in row["differences"]:
                 variable, label = widgets["directions"][difference.side]
                 if difference.price is None:

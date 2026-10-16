@@ -2,6 +2,7 @@
 import json
 import os
 import re
+import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
@@ -18,6 +19,12 @@ from .deadline import DeadlineTransport
 BASE_URL = "https://api.remarkets.primary.com.ar"
 KEYS = ("PRIMARY_USER", "PRIMARY_PASSWORD")
 DEPTH = 5
+# reMarkets answers HTTP 401 to a login within ~0.5s of the previous one
+# (measured 2026-10-15). Space this process's logins so concurrent screens,
+# restarts and account refreshes are not mistaken for bad credentials.
+LOGIN_SPACING = 2.0
+_login_lock = threading.Lock()
+_last_login = [float("-inf")]
 
 
 @dataclass(repr=False)
@@ -126,6 +133,8 @@ class Client:
     def __init__(self, credentials, *, live=False, session=None, max_requests=3):
         self.credentials = credentials
         self.live = live
+        # Injected sessions are offline test transports; only real ones are spaced.
+        self._space_logins = session is None
         self.session = session if session is not None else requests.Session()
         self.session.trust_env = False
         self._transport = DeadlineTransport(self.session)
@@ -244,7 +253,19 @@ class Client:
     def login(self):
         self._token = None
         self._renew_at = None
-        self._request(login=True)
+        if not self._space_logins:
+            self._request(login=True)
+            return
+        with _login_lock:
+            while not self._transport.expired:
+                wait = _last_login[0] + LOGIN_SPACING - time.monotonic()
+                if wait <= 0:
+                    break
+                time.sleep(min(wait, .1))  # Short steps keep Stop responsive.
+            try:
+                self._request(login=True)
+            finally:
+                _last_login[0] = time.monotonic()
 
     def accounts(self):
         return self._request(path="/rest/accounts")

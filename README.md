@@ -48,8 +48,9 @@ market-making experiments are preserved separately in [the archive](archive/READ
 ### GGAL arbitrage: spot, futures and financing
 
 Click **Start live check** to read GGAL spot bid/ask from PPI production and
-`GGAL/OCT26` / `GGAL/DIC26` futures from simulated reMarkets. The default refresh
-is five seconds. Enter **Caucion TNA (%)** to compare your annual nominal
+`GGAL/OCT26` / `GGAL/DIC26` futures from simulated reMarkets. Futures stream over
+a shared reMarkets WebSocket; PPI spot refreshes every two seconds by default.
+With manual spot, the cards update as soon as a futures book changes. Enter **Caucion TNA (%)** to compare your annual nominal
 borrowing rate with the futures' gross implied TNA. The caucion rate is a manual
 input; the app does not fetch it.
 
@@ -130,7 +131,8 @@ the default maximum observation age is ten seconds. Edit either control and
 click **Apply** without restarting.
 
 A3 uses an anonymous WebSocket with subscription snapshots refreshed every five
-seconds. reMarkets is polled every second by a separate reader. Slow requests do
+seconds. reMarkets books arrive over the shared WebSocket, falling back to
+polling every second while the stream is unavailable. Slow requests do
 not overlap. Missing sides disable the affected direction; invalid books pause
 comparisons, and old observations appear gray. Highlights are visual only.
 This screen starts and stops independently of the carry monitor.
