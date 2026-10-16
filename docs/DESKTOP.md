@@ -170,10 +170,20 @@ The calculation uses:
 - P/L since entry = signed contracts × shares per contract × (projected future
   − average entry).
 
+**Closing cost per contract (ARS)** (commission, fees and half the spread) is
+subtracted once per open contract from both P/L columns and every probability;
+0 keeps gross P/L.
+
 An active position that expires on or before the scenario date is unavailable;
-its combined totals and probabilities are suppressed. Input edits clear old
-results until recalculation. P/L is gross and theoretical; since-entry P/L is
-cumulative economic P/L, not an unpaid broker balance.
+its combined totals and probabilities are suppressed (the Monte Carlo paths
+below settle it instead). Input edits clear old results until recalculation.
+P/L is theoretical; since-entry P/L is cumulative economic P/L, not an unpaid
+broker balance.
+
+The **sensitivity grid** repeats the calculation for stock moves from −20% to
++20% (plus your move, highlighted) against projection-TNA shifts of ±5 and
+±10 percentage points. Shifts apply to the assumed TNA, or to each leg's
+implied TNA when the assumption is blank.
 
 ## History and probabilities
 
@@ -190,7 +200,44 @@ probabilities. Overlapping historical windows are not independent forecasts.
 **Futures P/L** estimates the chance of meeting the combined scenario P/L from
 today and of finishing profitable. The legs share each simulated stock return
 and your TNA assumptions. These are estimates at the selected horizon, not
-guarantees or probabilities of avoiding a drawdown along the way.
+guarantees or probabilities of avoiding a drawdown along the way. The card also
+shows 95% and 99% **VaR** (P/L at the worst 5% / 1% outcome) and **expected
+shortfall** (average P/L beyond it), computed exactly from the same smoothed
+distribution.
+
+**Sampling ranges.** Overlapping N-day windows hold far less information than
+their count suggests (about count / N independent periods, also displayed). Each
+probability carries a 95% circular moving-block bootstrap range: blocks of at
+least N consecutive windows are resampled, so overlap and volatility clusters
+stay together. The ranges cover sampling noise only, not model error.
+
+**Return model** (shared by both views):
+
+- *Drift*: **Historical** keeps the sample's ARS trend, which reflects past
+  inflation. **Zero** removes it. **Assumed TNA** centres log growth on the
+  assumed future TNA over the scenario's calendar days, consistent with how the
+  futures are priced.
+- *Volatility*: **Equal weight** uses raw history. **Current (EWMA)** is filtered
+  historical simulation: each daily move is divided by its own day's EWMA
+  volatility (λ = 0.94) and multiplied by today's, then N-day windows are
+  rebuilt from the rescaled moves.
+- **Exclude flagged jumps**: the coverage line lists daily moves more than six
+  robust (MAD) standard deviations from the median. These may be unadjusted
+  splits, large dividends or data errors, but genuine crashes also qualify, so
+  check them before excluding. Ordinary dividends are too small to detect.
+
+**Monte Carlo daily paths** (Futures P/L) resamples blocks of five consecutive
+daily moves from the same return model and marks the book to market at every
+session close. It reports the final P/L distribution (with VaR/ES), the average
+and 5th-percentile worst daily-close P/L along the path, and the chance that the
+loss reaches **Margin buffer (ARS)**. The buffer is prefilled from the loaded
+account's available-to-operate. Legs that expire inside the horizon settle at
+that day's spot. **TNA volatility** (percentage points of standard deviation at
+the horizon) and **Stock/TNA correlation** add a random rate walk around the
+path from the implied TNA to the projection TNA. Without GGAL futures history,
+both are user assumptions; 0 reproduces the fixed-rate model. With zero
+volatility and rates, paths reproduce the deterministic calculation exactly.
+Simulations run in the background and are discarded when inputs change.
 
 **Cancel fetch**, a replacement request and closing the app cancel reads and
 discard late responses. Editing spot during a pending quote preserves manual

@@ -58,9 +58,20 @@ class ScenarioResult:
     total_since_entry: float | None
 
 
-def calculate(spot, move, positions, reference_date, *, horizon=2, assumed_tna=None):
+def validate_cost(close_cost):
+    close_cost = finite(close_cost, "closing cost per contract")
+    if close_cost < 0:
+        raise ValueError("The closing cost per contract cannot be negative.")
+    return close_cost
+
+
+def calculate(spot, move, positions, reference_date, *, horizon=2, assumed_tna=None, tna_shift=0.0, close_cost=0.0):
+    """`tna_shift` (percentage points) moves every projection rate; `close_cost`
+    (ARS per contract) is charged once per open contract to realize the P/L."""
     spot = finite(spot, "spot price", positive=True)
     move = validate_move(move)
+    tna_shift = finite(tna_shift, "TNA shift")
+    close_cost = validate_cost(close_cost)
     if assumed_tna is not None:
         assumed_tna = finite(assumed_tna, "assumed future TNA")
     target = advance_sessions(reference_date, horizon)
@@ -90,12 +101,13 @@ def calculate(spot, move, positions, reference_date, *, horizon=2, assumed_tna=N
         days = (position.maturity - reference_date).days
         remaining = (position.maturity - target).days
         rate = finite((current / spot - 1) * DAY_BASIS / days, "implied financing rate")
-        projection_tna = finite(rate * 100, "implied TNA") if assumed_tna is None else assumed_tna
+        projection_tna = (finite(rate * 100, "implied TNA") if assumed_tna is None else assumed_tna) + tna_shift
         future = finite(projected * (1 + (projection_tna / 100) * remaining / DAY_BASIS),
                         "projected future price", positive=True)
         try:
-            change = finite(q * CONTRACT_SHARES * (future - current), "profit/loss")
-            total = finite(q * CONTRACT_SHARES * (future - entry), "profit/loss")
+            cost = close_cost * abs(q)
+            change = finite(q * CONTRACT_SHARES * (future - current) - cost, "profit/loss")
+            total = finite(q * CONTRACT_SHARES * (future - entry) - cost, "profit/loss")
         except OverflowError:
             raise ValueError("Position is too large to calculate a finite profit/loss.") from None
         legs.append(LegResult(position.expiry, q, finite(rate * 100, "implied TNA"), future, change, total,

@@ -80,30 +80,84 @@ def normalize_history(records, start, end, *, completed_before, horizon=2):
     return with_horizon(base, horizon)
 
 
-def with_horizon(sample, horizon):
-    """Recompute actual N-session returns from cached closes, without refetching."""
+def horizon_windows(sample, horizon, excluded_days=()):
+    """(start, end) session pairs of complete N-session windows, plus the
+    number of excluded windows. A window is excluded when any of its sessions
+    is missing or when any daily return inside it ends on an excluded day."""
     validate_horizon(horizon)
     values = dict(sample.closes)
+    excluded_days = set(excluded_days)
     sessions = sessions_between(sample.requested_start, sample.requested_end)
-    returns = []
-    excluded = 0
-    # A missing day anywhere in a window makes its horizon ambiguous. A prefix
-    # count checks this in O(1), including longer horizons.
-    missing = [0]
+    # A missing day anywhere in a window makes its horizon ambiguous. Prefix
+    # counts check this in O(1), including longer horizons.
+    missing, flagged = [0], [0]
     for day in sessions:
         missing.append(missing[-1] + (day not in values))
+        flagged.append(flagged[-1] + (day in excluded_days))
+    windows = []
+    excluded = 0
     for index in range(max(0, len(sessions) - horizon)):
-        window = sessions[index:index + horizon + 1]
-        if missing[index + horizon + 1] != missing[index]:
+        if (missing[index + horizon + 1] != missing[index]
+                or flagged[index + horizon + 1] != flagged[index + 1]):
             excluded += 1
             continue
-        value = values[window[-1]] / values[window[0]] - 1
+        windows.append((sessions[index], sessions[index + horizon]))
+    return windows, excluded, len(sessions)
+
+
+def with_horizon(sample, horizon, excluded_days=()):
+    """Recompute actual N-session returns from cached closes, without refetching."""
+    values = dict(sample.closes)
+    windows, excluded, expected = horizon_windows(sample, horizon, excluded_days)
+    returns = []
+    for first, last in windows:
+        value = values[last] / values[first] - 1
         if value <= -1 or not math.isfinite(value) or not math.isfinite(value * 100):
             excluded += 1
             continue
         returns.append(value)
-    return replace(sample, returns=tuple(returns), expected_sessions=len(sessions),
+    return replace(sample, returns=tuple(returns), expected_sessions=expected,
                    excluded_windows=excluded, horizon=horizon)
+
+
+def daily_log_returns(sample):
+    """Chronological (session, log return) pairs between consecutive sessions
+    that both have a close; a missing session breaks the chain, never bridges it."""
+    values = dict(sample.closes)
+    sessions = sessions_between(sample.requested_start, sample.requested_end)
+    result = []
+    for previous, day in zip(sessions, sessions[1:]):
+        if previous in values and day in values:
+            result.append((day, math.log(values[day] / values[previous])))
+    return tuple(result)
+
+
+@dataclass(frozen=True)
+class Jump:
+    day: date
+    log_return: float
+    robust_z: float  # Distance from the median in MAD-based standard deviations.
+
+
+def flag_jumps(daily, threshold=6.0):
+    """Daily moves far outside the robust spread, largest first.
+
+    Catches unadjusted splits and large data errors. Ordinary dividends are a
+    few percent and cannot be told apart from normal GGAL volatility this way.
+    """
+    if len(daily) < MIN_WINDOWS:
+        return ()
+    logs = sorted(value for _, value in daily)
+    middle = len(logs) // 2
+    median = logs[middle] if len(logs) % 2 else (logs[middle - 1] + logs[middle]) / 2
+    deviations = sorted(abs(value - median) for value in logs)
+    mad = deviations[middle] if len(deviations) % 2 else (deviations[middle - 1] + deviations[middle]) / 2
+    scale = 1.4826 * mad
+    if scale <= 0:
+        return ()
+    jumps = [Jump(day, value, (value - median) / scale) for day, value in daily
+             if abs(value - median) / scale >= threshold]
+    return tuple(sorted(jumps, key=lambda jump: -abs(jump.robust_z)))
 
 
 @dataclass(frozen=True)

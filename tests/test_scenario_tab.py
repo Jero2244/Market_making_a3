@@ -146,6 +146,73 @@ class DistributionControlsTests(unittest.TestCase):
         self.assertEqual(self.tab.pnl_scenario.get(), "Scenario P/L: unavailable")
         self.assertTrue(self.tab.pnl_profit_chance.get().endswith("--"))
 
+    def history_sample(self):
+        days = sessions_between(date(2026, 1, 1), date(2026, 6, 30))
+        return normalize_history([{"date": day.isoformat(), "price": 100 * (1.01 if index % 3 else .985) ** index}
+                                  for index, day in enumerate(days)], days[0], days[-1],
+                                 completed_before=date(2026, 7, 1))
+
+    def test_sensitivity_grid_cost_intervals_and_tail_risk(self):
+        self.tab.close_cost.set("10")
+        self.calculate_position()
+        self.assertEqual(self.tab.pnl_scenario.get(), "Scenario P/L: +490.00 ARS")
+        self.assertIn("Combined net P/L", self.tab.pnl_probability_note.get())
+        self.assertIn("95% sampling ranges", self.tab.pnl_intervals.get())
+        self.assertIn("95% VaR", self.tab.pnl_tail.get())
+        rows = [self.tab.sensitivity.item(child) for child in self.tab.sensitivity.get_children()]
+        self.assertEqual(len(rows), 9)
+        scenario_row = next(row for row in rows if "selected" in row["tags"])
+        self.assertEqual(scenario_row["values"][3], "+490.00")  # Projection TNA column.
+        self.assertTrue(str(next(row for row in rows if str(row["values"][0]).startswith("-20%"))["values"][3]).startswith("-"))
+        self.tab.close_cost.set("-1")
+        self.tab.recalculate()
+        self.assertIsNone(self.tab.result)
+        self.assertFalse(self.tab.sensitivity.get_children())
+
+    def test_model_settings_rebuild_sample_and_report_label(self):
+        self.tab.history = self.history_sample()
+        self.tab.refresh_frequency()
+        raw = self.tab.horizon_sample
+        self.tab.drift_mode.set("Zero")
+        self.assertIsNot(self.tab.horizon_sample, raw)
+        self.assertIn("Model: zero drift", self.tab.coverage.get())
+        self.assertAlmostEqual(sum(math.log1p(value) for value in self.tab.horizon_sample.returns), 0, places=9)
+        self.tab.drift_mode.set("Assumed TNA")
+        self.tab.assumed_tna.set("")
+        self.assertIn("assumed future TNA", self.tab.frequency.get())
+        self.tab.assumed_tna.set("40")
+        self.assertIn("drift at 40% TNA", self.tab.coverage.get())
+
+    def test_simulation_runs_in_background_and_is_invalidated_by_inputs(self):
+        self.tab.history = self.history_sample()
+        self.tab.refresh_frequency()
+        self.tab.sim_paths.set("500")
+        self.tab.sim_margin.set("300")
+        self.tab.run_simulation()
+        self.assertIn("Click Calculate first", self.tab.sim_status.get())
+        self.calculate_position()
+        self.tab.run_simulation()
+        for _ in range(500):
+            self.tab.poll()
+            if self.tab.simulation is not None:
+                break
+            self.root.after(10)
+        self.assertIsNotNone(self.tab.simulation)
+        self.assertIn("500 paths", self.tab.sim_status.get())
+        self.assertIn("VaR", self.tab.sim_final.get())
+        self.assertIn("300.00 ARS buffer", self.tab.sim_path_risk.get())
+        self.assertTrue(self.tab.sim_chart.find_withtag("var"))
+        self.tab.sim_rate_vol.set("2")
+        self.assertIsNone(self.tab.simulation)
+        self.assertIn("Run the simulation again", self.tab.sim_status.get())
+
+    def test_account_available_prefills_margin_buffer_until_edited(self):
+        self.tab._prefill_margin_buffer(125000.5)
+        self.assertEqual(self.tab.sim_margin.get(), "125000.50")
+        self.tab.sim_margin.set("1000")
+        self.tab._prefill_margin_buffer(5)
+        self.assertEqual(self.tab.sim_margin.get(), "1000")
+
     def test_no_positions_does_not_present_chance_of_profit(self):
         self.tab.spot.set("100")
         self.tab.recalculate()

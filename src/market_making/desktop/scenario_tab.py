@@ -2,23 +2,35 @@
 from datetime import date
 import math
 from pathlib import Path
-from queue import Empty
+from queue import Empty, Queue
+import threading
 import tkinter as tk
 from tkinter import ttk
 
 from market_making.contracts import CONTRACTS, CONTRACT_SHARES, DAY_BASIS
 from market_making.scenarios.calendar import BA, today, validate_horizon, advance_sessions
 from market_making.scenarios.calculation import (
-    DEFAULT_EXPIRIES, Position, calculate, simulated_midpoints, validate_move, finite,
+    DEFAULT_EXPIRIES, Position, calculate, simulated_midpoints, validate_cost, validate_move, finite,
 )
-from market_making.scenarios.history import historical_frequency, with_horizon
+from market_making.scenarios.history import daily_log_returns, historical_frequency
 from market_making.scenarios.distribution import (
-    RANGE_COMPARISONS, ReturnDensity, pnl_probabilities, range_probability, range_returns, quantile,
+    RANGE_COMPARISONS, ReturnDensity, effective_observations, pnl_probabilities, pnl_tail_risk,
+    range_probability, range_returns, quantile,
 )
+from market_making.scenarios.model import DRIFT_MODES, VOLATILITY_MODES, ModelSettings, model_sample
+from market_making.scenarios.simulation import SimulationLeg, SimulationSettings, simulate
 from .scenario_controller import ScenarioController
 
 BLUE = "#245bd8"
 MUTED = "#64748b"
+RED = "#b42318"
+GREEN = "#127454"
+GRID_MOVES = (-20, -10, -5, -2, 0, 2, 5, 10, 20)
+GRID_TNA_SHIFTS = (-10, -5, 0, 5, 10)
+
+
+def interval_text(interval):
+    return "--" if interval is None else f"{interval[0]:.1f}-{interval[1]:.1f}%"
 
 
 def numeric(text):
@@ -53,6 +65,16 @@ class ScenarioTab(ttk.Frame):
         self.account_snapshot = None
         self._manual_positions = None
         self._active_position_mode = "Manual simulation"
+        self.model = None  # ModelSample behind horizon_sample, when built here.
+        self.simulation = None
+        self._simulation_events = Queue()
+        self._simulation_generation = 0
+        self._simulation_running = False
+        self._margin_buffer_edited = False
+        self._setting_margin_buffer = False
+        self._pnl_cache_key = self._pnl_cache = None
+        # Inputs behind self.result, reused by the grid and the simulation.
+        self._last_positions, self._last_assumption, self._last_cost = (), None, 0.0
         # Scroll at smaller window sizes without hiding the histogram or notes.
         viewport = tk.Canvas(self, background="#f3f5f9", highlightthickness=0)
         scrollbar = ttk.Scrollbar(self, orient="vertical", command=viewport.yview)
@@ -117,6 +139,22 @@ class ScenarioTab(ttk.Frame):
             entry.pack(side="left", padx=(8, 18))
             entry.bind("<Return>", lambda _: self.recalculate())
         ttk.Button(inputs, text="Calculate", style="Accent.TButton", command=self.recalculate).pack(side="left")
+        model_controls = ttk.Frame(body)
+        model_controls.pack(fill="x", pady=(0, 2))
+        self.drift_mode = tk.StringVar(value="Historical")
+        self.volatility_mode = tk.StringVar(value="Equal weight")
+        self.exclude_jumps = tk.BooleanVar(value=False)
+        ttk.Label(model_controls, text="Return model: drift").pack(side="left")
+        ttk.Combobox(model_controls, textvariable=self.drift_mode, values=DRIFT_MODES,
+                     state="readonly", width=12).pack(side="left", padx=(8, 18))
+        ttk.Label(model_controls, text="Volatility").pack(side="left")
+        ttk.Combobox(model_controls, textvariable=self.volatility_mode, values=VOLATILITY_MODES,
+                     state="readonly", width=15).pack(side="left", padx=(8, 18))
+        ttk.Checkbutton(model_controls, text="Exclude flagged jumps", variable=self.exclude_jumps).pack(side="left")
+        ttk.Label(body, text="Zero drift removes the historical ARS trend; Assumed TNA centres outcomes on the assumed "
+                             "future TNA (Futures P/L tab). EWMA rescales every past move to today's volatility. "
+                             "Defaults use the raw history.",
+                  style="Muted.TLabel", wraplength=920).pack(anchor="w", pady=(0, 4))
 
         self.views = ttk.Notebook(body)
         self.views.pack(fill="both", expand=True, pady=(2, 0))
@@ -151,6 +189,16 @@ class ScenarioTab(ttk.Frame):
                   style="Muted.TLabel").pack(side="left", padx=10)
         self.rate_source = tk.StringVar(value="Enter your assumed projection rate, or copy the caucion rate from GGAL arbitrage.")
         ttk.Label(positions_body, textvariable=self.rate_source, style="Muted.TLabel", wraplength=920).pack(anchor="w", pady=(0, 5))
+        cost_controls = ttk.Frame(positions_body)
+        cost_controls.pack(fill="x", pady=(0, 5))
+        self.close_cost = tk.StringVar(value="0")
+        ttk.Label(cost_controls, text="Closing cost per contract (ARS)").pack(side="left")
+        cost_entry = ttk.Entry(cost_controls, textvariable=self.close_cost, width=12)
+        cost_entry.pack(side="left", padx=8)
+        cost_entry.bind("<Return>", lambda _: self.recalculate())
+        ttk.Label(cost_controls, text="Commission, fees and half the bid/ask spread to close one contract. "
+                                      "Charged on every open contract; 0 = gross P/L.",
+                  style="Muted.TLabel").pack(side="left", padx=10)
         self.position_rows = ttk.Frame(positions_body)
         self.position_rows.pack(fill="x", pady=(0, 5))
         self._render_positions(self._default_positions())
@@ -163,9 +211,11 @@ class ScenarioTab(ttk.Frame):
         self.pnl_target_chance = tk.StringVar(value="Chance of finishing with at least the scenario P/L: --")
         self.pnl_profit_chance = tk.StringVar(value="Chance of finishing profitable: --")
         self.pnl_probability_note = tk.StringVar(value="Enter positions and click Calculate.")
+        self.pnl_intervals = tk.StringVar()
+        self.pnl_tail = tk.StringVar()
         ttk.Label(pnl_card, textvariable=self.pnl_scenario, style="CardTitle.TLabel",
                   foreground=BLUE, wraplength=890).pack(anchor="w")
-        for variable in (self.pnl_target_chance, self.pnl_profit_chance):
+        for variable in (self.pnl_target_chance, self.pnl_profit_chance, self.pnl_intervals, self.pnl_tail):
             ttk.Label(pnl_card, textvariable=variable, style="Card.TLabel", wraplength=890).pack(anchor="w", pady=(4, 0))
         ttk.Label(pnl_card, textvariable=self.pnl_probability_note, style="CardMuted.TLabel",
                   wraplength=890).pack(anchor="w", pady=(6, 0))
@@ -186,8 +236,23 @@ class ScenarioTab(ttk.Frame):
         self.table.pack(fill="x")
         ttk.Label(positions_body, text=f"Projected future = projected spot x (1 + projection TNA / 100 x remaining calendar days / {DAY_BASIS}). "
                             "An assumed TNA models repricing to that rate by the scenario date. "
-                            "Before commissions, spread, taxes and margin financing. Since-entry P/L includes differences already settled.",
+                            "After the closing cost entered above; before taxes and margin financing. Since-entry P/L includes differences already settled.",
                   style="Muted.TLabel", wraplength=920).pack(anchor="w", pady=(5, 8))
+        ttk.Label(positions_body, text="Combined P/L sensitivity (ARS): stock move x change in projection TNA",
+                  style="CardTitle.TLabel").pack(anchor="w", pady=(6, 2))
+        grid_columns = ("move",) + tuple(f"tna{index}" for index in range(len(GRID_TNA_SHIFTS)))
+        self.sensitivity = ttk.Treeview(positions_body, columns=grid_columns, show="headings",
+                                        height=len(GRID_MOVES) + 1, selectmode="none")
+        self.sensitivity.heading("move", text="Stock move")
+        self.sensitivity.column("move", width=110, anchor="w")
+        for index, shift in enumerate(GRID_TNA_SHIFTS):
+            self.sensitivity.heading(f"tna{index}", text="Projection TNA" if shift == 0 else f"TNA {shift:+d} pp")
+            self.sensitivity.column(f"tna{index}", width=130, anchor="e")
+        self.sensitivity.tag_configure("selected", background="#e8eefc")
+        self.sensitivity.pack(fill="x")
+        self.sensitivity_note = tk.StringVar(value="Calculate a scenario to fill the grid.")
+        ttk.Label(positions_body, textvariable=self.sensitivity_note, style="Muted.TLabel", wraplength=920).pack(anchor="w", pady=(3, 8))
+        self._layout_simulation(positions_body)
         history_controls = ttk.Frame(distribution_body)
         history_controls.pack(fill="x")
         ttk.Label(history_controls, text="Historical return distribution (PDF)", style="CardTitle.TLabel").pack(side="left")
@@ -242,6 +307,254 @@ class ScenarioTab(ttk.Frame):
         self.years.trace_add("write", lambda *_: self._history_inputs_changed())
         self.position_mode.trace_add("write", self._position_mode_changed)
         self.spot_entry.bind("<Return>", lambda _: self.recalculate())
+        for variable in (self.drift_mode, self.volatility_mode, self.exclude_jumps):
+            variable.trace_add("write", lambda *_: self._model_changed())
+        self.close_cost.trace_add("write", lambda *_: self._inputs_changed())
+        for variable in (self.sim_paths, self.sim_rate_vol, self.sim_correlation):
+            variable.trace_add("write", lambda *_: self._simulation_inputs_changed())
+        self.sim_margin.trace_add("write", self._margin_buffer_changed)
+
+    def _layout_simulation(self, parent):
+        card = ttk.Frame(parent, padding=12, style="Card.TFrame")
+        card.pack(fill="x", pady=(4, 10))
+        ttk.Label(card, text="Monte Carlo daily paths", style="CardTitle.TLabel", foreground=BLUE).pack(anchor="w")
+        ttk.Label(card, text="Resamples blocks of consecutive daily GGAL moves (same return model as above) and marks "
+                             "the book to market every session. Adds intra-horizon losses, expiry settlement and "
+                             "optional random TNA moves.",
+                  style="CardMuted.TLabel", wraplength=890).pack(anchor="w", pady=(2, 6))
+        controls = ttk.Frame(card, style="Card.TFrame")
+        controls.pack(fill="x")
+        self.sim_paths = tk.StringVar(value="5000")
+        self.sim_rate_vol = tk.StringVar(value="0")
+        self.sim_correlation = tk.StringVar(value="0")
+        self.sim_margin = tk.StringVar()
+        for label, variable, width in (("Paths", self.sim_paths, 8),
+                                       ("TNA volatility (pp at horizon)", self.sim_rate_vol, 7),
+                                       ("Stock/TNA correlation", self.sim_correlation, 6),
+                                       ("Margin buffer (ARS)", self.sim_margin, 14)):
+            ttk.Label(controls, text=label, style="Card.TLabel").pack(side="left")
+            entry = ttk.Entry(controls, textvariable=variable, width=width)
+            entry.pack(side="left", padx=(6, 14))
+            entry.bind("<Return>", lambda _: self.run_simulation())
+        self.simulate_button = ttk.Button(controls, text="Run simulation", style="Accent.TButton",
+                                          command=self.run_simulation)
+        self.simulate_button.pack(side="left")
+        ttk.Label(card, text="TNA volatility 0 keeps rates on their path to the projection TNA. No GGAL futures history "
+                             "is available here, so rate volatility and correlation are your assumptions. Margin buffer "
+                             "is the mark-to-market loss you can absorb (prefilled from the account's available-to-operate).",
+                  style="CardMuted.TLabel", wraplength=890).pack(anchor="w", pady=(6, 0))
+        self.sim_status = tk.StringVar(value="Calculate a scenario and fetch history, then run the simulation.")
+        self.sim_final = tk.StringVar()
+        self.sim_path_risk = tk.StringVar()
+        ttk.Label(card, textvariable=self.sim_status, style="CardMuted.TLabel", wraplength=890).pack(anchor="w", pady=(6, 0))
+        for variable in (self.sim_final, self.sim_path_risk):
+            ttk.Label(card, textvariable=variable, style="Card.TLabel", wraplength=890).pack(anchor="w", pady=(4, 0))
+        self.sim_chart = tk.Canvas(card, height=200, background="white", highlightthickness=0)
+        self.sim_chart.pack(fill="x", pady=(8, 0))
+        self.sim_chart.bind("<Configure>", lambda _: self.draw_simulation())
+        ttk.Label(card, text="Grey: simulated final P/L. Red: 5% worst-case P/L (VaR). Green: break-even. "
+                             "Orange: scenario P/L.", style="CardMuted.TLabel", wraplength=890).pack(anchor="w", pady=(3, 0))
+
+    def _simulation_inputs_changed(self):
+        self._simulation_generation += 1
+        self._simulation_running = False
+        if not hasattr(self, "simulate_button"):
+            return
+        self.simulate_button.configure(state="normal")
+        if self.simulation is not None:
+            self.simulation = None
+            self.sim_final.set("")
+            self.sim_path_risk.set("")
+            self.sim_status.set("Inputs changed. Run the simulation again.")
+            self.draw_simulation()
+
+    def _margin_buffer_changed(self, *_):
+        if not self._setting_margin_buffer:
+            self._margin_buffer_edited = bool(self.sim_margin.get().strip())
+        self._simulation_inputs_changed()
+
+    def _simulation_request(self):
+        """Validated, immutable inputs for the worker thread."""
+        if self.result is None:
+            raise ValueError("Click Calculate first; the simulation uses the same positions and assumptions.")
+        if self.history is None or self.horizon_sample is None:
+            raise ValueError("Fetch PPI history first; paths resample its daily moves.")
+        text = self.sim_paths.get().strip()
+        if not text.isascii() or not text.isdigit():
+            raise ValueError("Enter a whole number of simulated paths.")
+        margin = self.sim_margin.get().strip()
+        settings = SimulationSettings(paths=int(text), rate_volatility=numeric(self.sim_rate_vol.get()),
+                                      correlation=numeric(self.sim_correlation.get()),
+                                      margin_buffer=numeric(margin) if margin else None)
+        daily = ([value for _, value in self.model.daily] if self.model is not None
+                 else [value for _, value in daily_log_returns(self.history)])
+        legs = [SimulationLeg(position.expiry, position.contracts, position.current_price, position.maturity)
+                for position in self._last_positions if position.contracts]
+        return dict(daily_logs=daily, legs=legs, spot=numeric(self.spot.get()), reference_date=self.as_of(),
+                    horizon=self.horizon_days(), settings=settings, assumed_tna=self._last_assumption,
+                    close_cost=self._last_cost, target=self.result.total_from_today)
+
+    def run_simulation(self):
+        try:
+            request = self._simulation_request()
+            # Validate on the UI thread so errors appear immediately.
+            from market_making.scenarios.simulation import validate_settings
+            validate_settings(request["settings"])
+        except (ValueError, OverflowError) as exc:
+            self.sim_status.set(str(exc))
+            return
+        self._simulation_generation += 1
+        generation = self._simulation_generation
+        self._simulation_running = True
+        self.simulation = None
+        self.sim_final.set("")
+        self.sim_path_risk.set("")
+        self.draw_simulation()
+        self.simulate_button.configure(state="disabled")
+        self.sim_status.set(f"Simulating {request['settings'].paths:,} paths...")
+
+        def work():
+            try:
+                outcome, error = simulate(**request), None
+            except (ValueError, OverflowError, ZeroDivisionError) as exc:
+                outcome, error = None, str(exc)
+            except Exception:
+                outcome, error = None, "The simulation failed unexpectedly."
+            self._simulation_events.put((generation, outcome, error))
+        threading.Thread(target=work, name="ggal-scenario-simulation", daemon=True).start()
+
+    def _poll_simulation(self):
+        try:
+            while True:
+                generation, outcome, error = self._simulation_events.get_nowait()
+                if generation != self._simulation_generation:
+                    continue
+                self._simulation_running = False
+                self.simulate_button.configure(state="normal")
+                if error:
+                    self.sim_status.set(error)
+                    continue
+                self.simulation = outcome
+                self._show_simulation(outcome)
+        except Empty:
+            pass
+
+    def _show_simulation(self, outcome):
+        model = self.model.settings.label() if self.model is not None else "historical drift, equal-weight volatility"
+        settled = (" Settled at spot inside the horizon: " + ", ".join(
+            self.positions[expiry]["label"] if expiry in self.positions else expiry for expiry in outcome.settled) + "."
+                   if outcome.settled else "")
+        self.sim_status.set(f"{outcome.paths:,} paths / {outcome.horizon} trading days to {outcome.target_date} / "
+                            f"{model}.{settled}")
+        tail = {level: (value, shortfall) for level, value, shortfall in outcome.tail}
+        target = ("" if outcome.at_least_target is None else
+                  f" / at least scenario P/L {outcome.at_least_target:.1f}%")
+        self.sim_final.set(
+            f"Final P/L: mean {money(outcome.mean, signed=True)} / median {money(outcome.percentiles[50], signed=True)} / "
+            f"5th-95th pct {money(outcome.percentiles[5], signed=True)} to {money(outcome.percentiles[95], signed=True)} ARS. "
+            f"5% worst case (VaR) {money(tail[.05][0], signed=True)}, average beyond it (ES) {money(tail[.05][1], signed=True)}; "
+            f"1%: {money(tail[.01][0], signed=True)} / {money(tail[.01][1], signed=True)}. "
+            f"Profitable {outcome.profitable:.1f}%{target}.")
+        breach = ("Enter a margin buffer to estimate margin-call risk." if outcome.margin_breach is None else
+                  f"Chance the loss at some daily close reaches the {money(self._margin_buffer_value())} ARS buffer: "
+                  f"{outcome.margin_breach:.1f}%.")
+        self.sim_path_risk.set(f"Worst daily-close P/L along the path: average {money(outcome.worst_mean, signed=True)}, "
+                               f"5% of paths {money(outcome.worst_p05, signed=True)} ARS or lower. {breach}")
+        self.draw_simulation()
+
+    def _margin_buffer_value(self):
+        try:
+            return numeric(self.sim_margin.get())
+        except ValueError:
+            return None
+
+    def _prefill_margin_buffer(self, available):
+        if self._margin_buffer_edited or available is None or available <= 0:
+            return
+        self._setting_margin_buffer = True
+        try:
+            self.sim_margin.set(format(available, ".2f"))
+        finally:
+            self._setting_margin_buffer = False
+
+    def draw_simulation(self):
+        if not hasattr(self, "sim_chart"):
+            return
+        chart = self.sim_chart
+        chart.delete("all")
+        width, height = max(300, chart.winfo_width()), 200
+        outcome = self.simulation
+        if outcome is None:
+            chart.create_text(width / 2, height / 2, text="Run the simulation to see the distribution of final P/L.",
+                              fill=MUTED, font=("Segoe UI", 10))
+            return
+        edges, counts = outcome.histogram
+        low, high = edges[0], edges[-1]
+        tail = outcome.tail[0][1]
+        markers = [(0.0, GREEN, "zero"), (tail, RED, "var")]
+        if self.result is not None and self.result.total_from_today is not None:
+            markers.append((self.result.total_from_today, "#d07c20", "target"))
+        low = min(low, *(value for value, _, _ in markers))
+        high = max(high, *(value for value, _, _ in markers))
+        if high <= low:
+            low, high = low - 1, high + 1
+        left, right, top, bottom = 20, width - 20, 15, height - 35
+        peak = max(counts) or 1
+
+        def x(value):
+            return left + (value - low) / (high - low) * (right - left)
+        for index, count in enumerate(counts):
+            colour = "#f2c4c0" if edges[index + 1] <= tail else "#d5dce6"
+            chart.create_rectangle(x(edges[index]) + 1, bottom - count / peak * (bottom - top),
+                                   x(edges[index + 1]) - 1, bottom, fill=colour, outline="", tags="bar")
+        for value, colour, tag in markers:
+            chart.create_line(x(value), top, x(value), bottom, fill=colour, dash=(4, 3), width=2, tags=tag)
+        chart.create_line(left, bottom, right, bottom, fill=MUTED)
+        for fraction in (0, .25, .5, .75, 1):
+            value = low + fraction * (high - low)
+            chart.create_text(left + fraction * (right - left), bottom + 13, text=money(value, signed=True),
+                              fill=MUTED, anchor="w" if fraction == 0 else "e" if fraction == 1 else "center")
+        chart.create_text((left + right) / 2, height - 8, text="Final combined P/L (ARS)", fill=MUTED)
+
+    def _model_settings(self):
+        drift_tna = None
+        if self.drift_mode.get() == "Assumed TNA":
+            text = self.assumed_tna.get().strip()
+            if not text:
+                raise ValueError("Enter an assumed future TNA (Futures P/L tab) to use it as the drift.")
+            drift_tna = finite(numeric(text), "assumed future TNA")
+        return ModelSettings(self.drift_mode.get(), self.volatility_mode.get(), bool(self.exclude_jumps.get()), drift_tna)
+
+    def _model_changed(self):
+        self._sample_key = None
+        self._inputs_changed()
+        self.refresh_frequency()
+
+    def _sensitivity_rows(self, positions, spot, move, days, assumption, cost):
+        moves = sorted(set(GRID_MOVES) | {move})
+        rows = []
+        for value in moves:
+            cells = []
+            for shift in GRID_TNA_SHIFTS:
+                try:
+                    total = calculate(spot, value, positions, self.as_of(), horizon=days, assumed_tna=assumption,
+                                      tna_shift=shift, close_cost=cost).total_from_today
+                except (ValueError, OverflowError):
+                    total = None
+                cells.append(total)
+            rows.append((value, cells))
+        return rows
+
+    def _fill_sensitivity(self, positions, spot, move, days, assumption, cost):
+        self.sensitivity.delete(*self.sensitivity.get_children())
+        for value, cells in self._sensitivity_rows(positions, spot, move, days, assumption, cost):
+            label = f"{value:+g}%" + ("  (scenario)" if value == move else "")
+            self.sensitivity.insert("", "end", values=(label, *(
+                "expiry" if cell is None else money(cell, signed=True) for cell in cells)),
+                tags=("selected",) if value == move else ())
+        base = "each leg's current implied TNA" if assumption is None else f"{assumption:g}% assumed TNA"
+        self.sensitivity_note.set(f"Columns shift the projection rate from {base}; the highlighted row is your scenario. "
+                                  "'expiry' = an active leg expires inside the horizon.")
 
     @staticmethod
     def _default_positions():
@@ -341,6 +654,7 @@ class ScenarioTab(ttk.Frame):
                  if snapshot.calculated_at else "calculation time unknown")
         self.account_balances.set(f"Whole account (all instruments): cash {money(snapshot.current_cash)} | available to operate {money(snapshot.available)} | "
                                   f"margin {money(snapshot.margin)} | collateral {money(snapshot.collateral)}. ARS / calculated {stamp}.")
+        self._prefill_margin_buffer(snapshot.available)
         self.account_simulation_button.configure(state="normal")
         self._inputs_changed()
 
@@ -387,13 +701,18 @@ class ScenarioTab(ttk.Frame):
             return
         self.result = None
         self.table.delete(*self.table.get_children())
+        self.sensitivity.delete(*self.sensitivity.get_children())
+        self.sensitivity_note.set("Calculate a scenario to fill the grid.")
         self.summary.set("Inputs changed. Click Calculate to update the scenario.")
+        self._simulation_inputs_changed()
         self._refresh_pnl_summary()
 
     def _refresh_pnl_summary(self):
         self.pnl_scenario.set("Scenario P/L: -- ARS")
         self.pnl_target_chance.set("Chance of finishing with at least the scenario P/L: --")
         self.pnl_profit_chance.set("Chance of finishing profitable: --")
+        self.pnl_intervals.set("")
+        self.pnl_tail.set("")
         if self.result is None:
             self.pnl_probability_note.set("Enter positions and click Calculate.")
             return
@@ -413,7 +732,16 @@ class ScenarioTab(ttk.Frame):
             self.pnl_probability_note.set("Combined P/L from today. Fetch PPI history to estimate the probabilities.")
             return
         try:
-            probabilities = pnl_probabilities(self.horizon_sample, self.result, numeric(self.spot.get()), self.density)
+            spot = numeric(self.spot.get())
+            key = (self.result, self.horizon_sample, self.density, spot)
+            cached = self._pnl_cache_key
+            if cached is None or any(a is not b for a, b in zip(cached[:3], key[:3])) or cached[3] != spot:
+                # Bootstrap intervals cost more than the point estimates; reuse
+                # them while only the distribution-range inputs change.
+                self._pnl_cache = (pnl_probabilities(self.horizon_sample, self.result, spot, self.density, intervals=True),
+                                   pnl_tail_risk(self.horizon_sample, self.result, spot, self.density))
+                self._pnl_cache_key = key
+            probabilities, tail = self._pnl_cache
         except (ValueError, OverflowError, ZeroDivisionError) as exc:
             self.pnl_probability_note.set(str(exc))
             return
@@ -423,9 +751,22 @@ class ScenarioTab(ttk.Frame):
             return
         self.pnl_target_chance.set(target_prefix + f"{probabilities.at_least_target:.2f}%")
         self.pnl_profit_chance.set(f"Chance of finishing profitable: {probabilities.profitable:.2f}%")
+        observations = len(self.horizon_sample.returns)
+        self.pnl_intervals.set(
+            f"95% sampling ranges: at least scenario P/L {interval_text(probabilities.at_least_target_interval)} / "
+            f"profitable {interval_text(probabilities.profitable_interval)}. {observations} overlapping periods "
+            f"~ {effective_observations(observations, self.horizon_sample.horizon):.0f} independent.")
+        if tail:
+            self.pnl_tail.set("Tail risk: " + " / ".join(
+                f"{100 - risk.level * 100:g}% VaR {money(risk.value_at_risk, signed=True)}, "
+                f"ES {money(risk.expected_shortfall, signed=True)}" for risk in tail)
+                + " ARS (P/L at the worst 5% / 1% outcome, and the average beyond it).")
+        kind = "gross" if not self._last_cost else "net"
+        model = self.model.settings.label() if self.model is not None else "historical drift, equal-weight volatility"
         self.pnl_probability_note.set(
-            f"Combined gross P/L from today, ending {self.result.target_date} "
-            f"({self.horizon_sample.horizon} trading days). Smoothed historical estimates using the scenario's TNA assumptions.")
+            f"Combined {kind} P/L from today, ending {self.result.target_date} "
+            f"({self.horizon_sample.horizon} trading days). Smoothed historical estimates using the scenario's TNA assumptions "
+            f"and {model}. Ranges are block-bootstrap sampling uncertainty, not model risk.")
 
     def _history_inputs_changed(self):
         self._inputs_changed()
@@ -485,7 +826,10 @@ class ScenarioTab(ttk.Frame):
             self._assumed_tna_edited = True
             self.rate_source.set("Manual assumed future TNA." if self.assumed_tna.get().strip() else
                                  "Blank assumption: preserve each future's current implied TNA.")
-        self._inputs_changed()
+        if self.drift_mode.get() == "Assumed TNA":
+            self._model_changed()
+        else:
+            self._inputs_changed()
 
     def _set_caucion_assumption(self, text):
         self._setting_assumed_tna = True
@@ -544,16 +888,22 @@ class ScenarioTab(ttk.Frame):
             days = self.horizon_days()
             text = self.assumed_tna.get().strip()
             assumption = finite(numeric(text), "assumed future TNA") if text else None
-            result = calculate(numeric(self.spot.get()), numeric(self.move.get()), positions, self.as_of(),
-                               horizon=days, assumed_tna=assumption)
+            cost_text = self.close_cost.get().strip()
+            cost = validate_cost(numeric(cost_text)) if cost_text else 0.0
+            spot, move = numeric(self.spot.get()), numeric(self.move.get())
+            result = calculate(spot, move, positions, self.as_of(),
+                               horizon=days, assumed_tna=assumption, close_cost=cost)
         except (ValueError, OverflowError) as exc:
             self.summary.set(str(exc))
             return
+        self._last_positions, self._last_assumption, self._last_cost = tuple(positions), assumption, cost
         self.result = result
         self.summary.set(f"{result.reference_date:%d %b %Y} -> {result.target_date:%d %b %Y} / "
                          f"{days} trading days, {(result.target_date - result.reference_date).days} calendar days / "
                          f"projected spot {money(result.projected_spot)} ARS / "
-                         + ("using current implied TNAs" if assumption is None else f"assumed future TNA {assumption:g}%"))
+                         + ("using current implied TNAs" if assumption is None else f"assumed future TNA {assumption:g}%")
+                         + (f" / net of {money(cost)} ARS closing cost per contract" if cost else ""))
+        self._fill_sensitivity(positions, spot, move, days, assumption, cost)
         for leg in result.legs:
             self.table.insert("", "end", values=(self.positions[leg.expiry]["label"],
                                                    money(leg.implied_tna) + ("%" if leg.implied_tna is not None else ""),
@@ -563,7 +913,8 @@ class ScenarioTab(ttk.Frame):
                                                    leg.reason or ("Inactive" if leg.contracts == 0 else "Theoretical")))
         self.table.insert("", "end", values=("Combined", "", "", "", money(result.total_from_today, signed=True),
                                                money(result.total_since_entry, signed=True),
-                                               "Unavailable active leg" if result.total_from_today is None else "Gross P/L"))
+                                               "Unavailable active leg" if result.total_from_today is None
+                                               else "Net P/L" if cost else "Gross P/L"))
         self.refresh_frequency()
 
     def copy_simulated(self):
@@ -627,6 +978,7 @@ class ScenarioTab(ttk.Frame):
     def poll(self):
         if self._closed:
             return
+        self._poll_simulation()
         try:
             while True:
                 generation, kind, result, error = self.controller.events.get_nowait()
@@ -665,7 +1017,7 @@ class ScenarioTab(ttk.Frame):
             return
         self.selected_range = None
         if self.history is None:
-            self.horizon_sample = self.density = None
+            self.horizon_sample = self.density = self.model = None
             self._sample_key = None
             self._curve_key = None
             self.frequency.set("Fetch GGAL daily history to compare the selected move.")
@@ -677,15 +1029,20 @@ class ScenarioTab(ttk.Frame):
             return
         try:
             days = self.horizon_days()
-            key = (id(self.history), days)
+            settings = self._model_settings()
+            reference = self.as_of() if settings.drift == "Assumed TNA" else None
+            # Default settings keep the original key: the raw sample is unchanged.
+            key = (id(self.history), days) if not settings.adjusted else (id(self.history), days, settings, reference)
             if key != self._sample_key:
-                self.horizon_sample = with_horizon(self.history, days)
+                self.model = model_sample(self.history, days, settings, reference)
+                self.horizon_sample = self.model.sample
                 self.density = ReturnDensity.fit(self.horizon_sample.returns)
                 self._sample_key = key
                 self._curve_key = None
             sample = self.horizon_sample
         except (ValueError, OverflowError) as exc:
-            self.horizon_sample = self.density = None
+            self.horizon_sample = self.density = self.model = None
+            self._sample_key = None
             self.frequency.set(str(exc))
             self.range_result.set(str(exc))
             self.percentiles.set("")
@@ -736,7 +1093,10 @@ class ScenarioTab(ttk.Frame):
                 self.range_result.set(f"End-of-horizon outcome {range_label} on {target_date} ({days} trading days): "
                                       f"smoothed estimate {probability.smoothed:.2f}% / historical {probability.empirical:.2f}% "
                                       f"({probability.matches}/{probability.observations}). "
-                                      f"{outside_label}")
+                                      f"{outside_label} 95% sampling range: smoothed "
+                                      f"{interval_text(probability.smoothed_interval)}, historical "
+                                      f"{interval_text(probability.empirical_interval)} "
+                                      f"(~{effective_observations(probability.observations, days):.0f} independent periods).")
         except (ValueError, OverflowError) as exc:
             self.range_result.set(str(exc))
         try:
@@ -753,9 +1113,24 @@ class ScenarioTab(ttk.Frame):
             self.percentiles.set("Enter spot to express historical outcomes as final prices.")
         dates = (f"{sample.closes[0][0]} to {sample.closes[-1][0]}" if sample.closes else "No usable daily prices")
         missing = sample.expected_sessions - len(sample.closes)
-        self.coverage.set(f"Coverage: {dates} / {len(sample.closes)} of {sample.expected_sessions} sessions / "
-                          f"{missing} missing / {sample.excluded_windows} windows excluded / "
-                          f"{sample.invalid_records} invalid records / {sample.conflicting_dates} conflicting dates")
+        coverage = (f"Coverage: {dates} / {len(sample.closes)} of {sample.expected_sessions} sessions / "
+                    f"{missing} missing / {sample.excluded_windows} windows excluded / "
+                    f"{sample.invalid_records} invalid records / {sample.conflicting_dates} conflicting dates")
+        if self.model is not None:
+            model = self.model
+            coverage += f"\nModel: {model.settings.label()}"
+            if model.current_volatility is not None:
+                coverage += f" (current daily volatility {model.current_volatility * 100:.2f}%)"
+            if model.jumps:
+                listed = ", ".join(f"{jump.day} {math.expm1(jump.log_return) * 100:+.1f}% ({abs(jump.robust_z):.0f} sd)"
+                                   for jump in model.jumps[:4])
+                more = f" and {len(model.jumps) - 4} more" if len(model.jumps) > 4 else ""
+                coverage += (f"\nFlagged daily jumps (possible unadjusted split/dividend or data error): {listed}{more}. "
+                             + ("Windows containing them are excluded." if model.settings.exclude_jumps else
+                                "Check them against corporate actions; tick Exclude flagged jumps to drop them."))
+            else:
+                coverage += "\nNo extreme daily jumps flagged. Ordinary dividends are too small to detect this way."
+        self.coverage.set(coverage)
         self.draw_histogram()
 
     def draw_histogram(self):
@@ -860,6 +1235,7 @@ class ScenarioTab(ttk.Frame):
 
     def close(self):
         self._closed = True
+        self._simulation_generation += 1  # A running simulation's result is discarded.
         self.env_variable.trace_remove("write", self._env_trace)
         if self.caucion_variable is not None:
             self.caucion_variable.trace_remove("write", self._caucion_trace)

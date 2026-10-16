@@ -30,13 +30,22 @@
   basis are user assumptions. Scenario expiry edits and full-assessment files
   are explicit overrides. Imported GGAL expiry dates and contract units are checked
   against reMarkets instrument metadata. Expired monitor contracts require updated shared settings.
-- **Gross P/L:** projections exclude commissions, bid/ask execution costs,
-  taxes, margin financing and cashflow adjustments. Since-entry P/L may include
-  differences already settled by the broker.
+- **P/L costs:** projections include only the closing cost per contract you
+  enter (0 = gross). Taxes, margin financing and cashflow adjustments are
+  excluded. Since-entry P/L may include differences already settled by the broker.
 - **Historical estimates:** probabilities depend on the historical sample,
-  horizon and TNA assumptions. Missing sessions are not filled, today's
-  unfinished observation is excluded, and sample coverage is shown. Overlapping
-  observations and changing market conditions limit interpretation.
+  horizon, return model and TNA assumptions. Missing sessions are not filled,
+  today's unfinished observation is excluded, and sample coverage is shown.
+  Bootstrap ranges quantify sampling noise from overlapping observations, not
+  regime changes or model error. Drift and EWMA adjustments are modelling
+  choices, not forecasts.
+- **Rate risk:** no GGAL futures history is read, so Monte Carlo TNA volatility
+  and stock/TNA correlation are user assumptions, and shocks move all legs'
+  rates in parallel (no term-structure twists). Margin-call estimates compare
+  daily mark-to-market loss with a fixed buffer; they ignore changing margin
+  requirements and intraday moves.
+- **Corporate actions:** the jump flag only catches extreme daily moves. PPI's
+  dividend/split adjustment remains unverified.
 
 Book labels and diagnostics remain in the app and exported snapshots. The old
 bot readiness and replay procedures are archived; they are not part of routine
